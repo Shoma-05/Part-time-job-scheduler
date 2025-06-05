@@ -68,7 +68,8 @@
     <!-- Header -->
     <header class="fixed top-0 left-0 w-full bg-white shadow-md p-4 flex justify-between items-center z-10 h-16">
         <!-- New universal Back Button in Header -->
-        <button id="header-back-btn" class="py-2 px-4 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors text-white font-semibold hidden">
+        <!-- Removed 'hidden' attribute; JavaScript will control visibility -->
+        <button id="header-back-btn" class="py-2 px-4 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors text-white font-semibold">
             戻る
         </button>
         <!-- Centered Title -->
@@ -384,7 +385,7 @@
 
     <!-- Preset Name Input Modal -->
     <div id="preset-name-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden">
-        <div class="bg-white p-6 rounded-xl shadow-2xl w-11/12 max-w-sm">
+        <div class="bg-white p-6 rounded-xl shadow-2xl w-11/12 max-w-md">
             <h3 class="text-xl font-bold text-gray-800 mb-4">プリセットの名前を入力</h3>
             <div class="space-y-4">
                 <div>
@@ -586,6 +587,14 @@
             debitCards: [], // Array to store multiple debit cards (NEW)
             loans: []
         };
+
+        // Helper function to format a Date object into 'YYYY-MM-DD' (local time)
+        function formatDateToYYYYMMDD(date) {
+            const year = date.getFullYear();
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const day = date.getDate().toString().padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
 
         // Helper for showing messages
         function showMessageBox(message, type = 'info') {
@@ -1223,7 +1232,7 @@
 
             bankSettings.loans.forEach((loan, index) => {
                 const loanItem = document.createElement('div');
-                loanItem.classList.add('bg-gray-50', 'p-4', 'rounded-lg', 'shadow-sm', 'flex', 'justify-between', 'items-center');
+                cardItem.classList.add('bg-gray-50', 'p-4', 'rounded-lg', 'shadow-sm', 'flex', 'justify-between', 'items-center');
                 loanItem.innerHTML = `
                     <div>
                         <p class="font-semibold text-gray-800">${loan.name}</p>
@@ -1416,15 +1425,14 @@
 
             // Iterate backwards from 'today' to 'graphMonthStartDate' (inclusive)
             // If today is earlier than graphMonthStartDate, this loop will not run.
-            const dateIterator = new Date(today);
+            const dateIterator = new Date(today.getFullYear(), today.getMonth(), today.getDate()); // Start from local midnight today
             while (dateIterator >= graphMonthStartDate) {
-                const dateStr = dateIterator.toISOString().split('T')[0];
+                const dateStr = formatDateToYYYYMMDD(dateIterator); // Use helper for YYYY-MM-DD
 
                 // 1. Add back cash/debit expenses that occurred on this date
                 expenses.filter(e => {
-                    const expDate = new Date(e.date);
-                    expDate.setHours(0,0,0,0);
-                    return expDate.toISOString().split('T')[0] === dateStr && (e.paymentMethodType === 'cash' || e.paymentMethodType === 'debit');
+                    const expDate = e.date; // Firestore Timestamp.toDate() already gives local date parts
+                    return formatDateToYYYYMMDD(expDate) === dateStr && (e.paymentMethodType === 'cash' || e.paymentMethodType === 'debit');
                 }).forEach(exp => {
                     balanceAtGraphMonthStart += exp.amount;
                 });
@@ -1446,7 +1454,7 @@
                     }
                 });
 
-                // Move to the previous day
+                // Move to the previous day (local time)
                 dateIterator.setDate(dateIterator.getDate() - 1);
             }
 
@@ -1455,17 +1463,16 @@
 
             for (let day = 1; day <= numDaysInGraphMonth; day++) {
                 const currentDateInGraph = new Date(year, month, day);
-                currentDateInGraph.setHours(0,0,0,0); // Normalize to start of day
-                const dateStr = currentDateInGraph.toISOString().split('T')[0];
+                currentDateInGraph.setHours(0,0,0,0); // Normalize to start of day (local midnight)
+                const dateStr = formatDateToYYYYMMDD(currentDateInGraph); // Use helper for YYYY-MM-DD
                 let dayExpenses = [];
                 let dayLoans = [];
                 let dayCreditCardDeductions = [];
 
                 // Deduct cash and debit expenses for the current day
                 expenses.filter(e => {
-                    const expenseDate = new Date(e.date);
-                    expenseDate.setHours(0,0,0,0);
-                    return expenseDate.toISOString().split('T')[0] === dateStr && (e.paymentMethodType === 'cash' || e.paymentMethodType === 'debit');
+                    const expenseDate = e.date; // Firestore Timestamp.toDate() already gives local date parts
+                    return formatDateToYYYYMMDD(expenseDate) === dateStr && (e.paymentMethodType === 'cash' || e.paymentMethodType === 'debit');
                 }).forEach(expense => {
                     runningBalanceProjection -= expense.amount;
                     dayExpenses.push(expense);
@@ -1521,7 +1528,7 @@
 
                 let total = 0;
                 expenses.filter(e => {
-                    const eDate = new Date(e.date);
+                    const eDate = e.date;
                     eDate.setHours(0, 0, 0, 0);
                     return e.paymentMethodType === 'credit' &&
                            e.paymentMethodName === card.name &&
@@ -1544,7 +1551,8 @@
             // Draw Y-axis (balance)
             const yAxisStart = padding;
             const yAxisEnd = height - padding;
-            const yAxisRange = maxBalance - minBalance;
+            // Handle case where minBalance and maxBalance are the same to prevent division by zero
+            const yAxisRange = (maxBalance === minBalance) ? 1 : maxBalance - minBalance; // Ensure yAxisRange is not zero
 
             chartCtx.beginPath();
             chartCtx.strokeStyle = '#ccc';
@@ -1562,7 +1570,7 @@
             const numYLabels = 5;
             for (let i = 0; i <= numYLabels; i++) {
                 const yValue = minBalance + (yAxisRange / numYLabels) * i;
-                const yPos = yAxisEnd - (yValue - minBalance) / yAxisRange * chartHeight;
+                const yPos = yAxisEnd - ((yValue - minBalance) / yAxisRange) * chartHeight; // Recalculate yPos
                 chartCtx.fillText(Math.round(yValue).toLocaleString(), padding - 5, yPos);
                 chartCtx.beginPath();
                 chartCtx.moveTo(padding, yPos);
@@ -1578,29 +1586,35 @@
             chartCtx.lineTo(width - padding, yAxisEnd);
             chartCtx.stroke();
 
-            // Plot data points
+            // Plot data points (line and circles)
             if (dailyBalancesData.length > 0) {
                 chartCtx.beginPath();
-                chartCtx.strokeStyle = '#3b82f6';
+                chartCtx.strokeStyle = '#3b82f6'; // Blue color for line
                 chartCtx.lineWidth = 2;
-                chartCtx.fillStyle = '#3b82f6';
+                // No fill for the area under the line
 
                 const pointRadius = 3;
-                const xStep = numDaysInGraphMonth > 1 ? chartWidth / (numDaysInGraphMonth - 1) : 0;
+                const xStep = dailyBalancesData.length > 1 ? chartWidth / (dailyBalancesData.length - 1) : 0;
 
                 dailyBalancesData.forEach((data, index) => {
                     const xPos = padding + index * xStep;
-                    const yPos = yAxisEnd - (data.balance - minBalance) / yAxisRange * chartHeight;
+                    const yPos = yAxisEnd - ((data.balance - minBalance) / yAxisRange) * chartHeight;
 
                     if (index === 0) {
-                        chartCtx.moveTo(xPos, yPos);
+                        chartCtx.moveTo(xPos, yPos); // Corrected from 'ctx' to 'chartCtx'
                     } else {
-                        chartCtx.lineTo(xPos, yPos);
+                        chartCtx.lineTo(xPos, yPos); // Corrected from 'ctx' to 'chartCtx'
                     }
+                    // Draw circle at each data point
+                    chartCtx.beginPath();
                     chartCtx.arc(xPos, yPos, pointRadius, 0, Math.PI * 2, false);
+                    chartCtx.fillStyle = '#3b82f6'; // Fill circle with blue
                     chartCtx.fill();
+                    chartCtx.strokeStyle = '#ffffff'; // White border for contrast
+                    chartCtx.lineWidth = 1;
+                    chartCtx.stroke();
                 });
-                chartCtx.stroke();
+                chartCtx.stroke(); // Draw the main line
             }
 
 
@@ -1610,12 +1624,14 @@
             chartCtx.textAlign = 'center';
             chartCtx.textBaseline = 'top';
 
-            // xStep might not be defined if numDaysInGraphMonth is 0 or 1, or graphWidth is 0
-            const calculatedXStep = numDaysInGraphMonth > 1 ? chartWidth / (numDaysInGraphMonth - 1) : 0;
+            const labelStep = Math.max(1, Math.floor(numDaysInGraphMonth / 7)); // Adjust label frequency for readability
+            const calculatedXStep = dailyBalancesData.length > 1 ? chartWidth / (dailyBalancesData.length - 1) : 0;
+
 
             for (let i = 0; i < numDaysInGraphMonth; i++) {
-                if (numDaysInGraphMonth <= 10 || i % 5 === 0 || i === numDaysInGraphMonth - 1) {
-                    const xPos = padding + i * calculatedXStep; // Use calculatedXStep
+                // Adjust label frequency for better readability on smaller screens
+                if (numDaysInGraphMonth <= 10 || i % Math.ceil(numDaysInGraphMonth / 5) === 0 || i === numDaysInGraphMonth - 1) {
+                    const xPos = padding + i * calculatedXStep;
                     chartCtx.fillText(`${i + 1}日`, xPos, yAxisEnd + 5);
                 }
             }
@@ -1624,9 +1640,7 @@
             chartCanvas.onclick = (event) => {
                 const rect = chartCanvas.getBoundingClientRect();
                 const mouseX = event.clientX - rect.left;
-                const mouseY = event.clientY - rect.top;
 
-                // Make sure calculatedXStep is not zero to avoid division by zero
                 const clickedIndex = (calculatedXStep !== 0) ? Math.round((mouseX - padding) / calculatedXStep) : 0;
 
                 if (clickedIndex >= 0 && clickedIndex < dailyBalancesData.length) {
@@ -1687,7 +1701,8 @@
                 const date = new Date(year, month, day);
                 const dayCell = document.createElement('div');
                 dayCell.classList.add('calendar-day', 'p-2', 'flex', 'flex-col', 'items-center', 'justify-between', 'border', 'border-gray-200', 'rounded-md', 'cursor-pointer', 'hover:bg-blue-50', 'transition-colors', 'duration-200', 'relative');
-                dayCell.dataset.date = date.toISOString().split('T')[0];
+                // Use helper to ensure correct YYYY-MM-DD string for dataset
+                dayCell.dataset.date = formatDateToYYYYMMDD(date);
 
                 const dayNumSpan = document.createElement('span');
                 dayNumSpan.classList.add('font-bold', 'text-lg');
@@ -1710,19 +1725,17 @@
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
             const shiftsColRef = window.collection(db, `artifacts/${appId}/users/${userId}/shifts`);
 
-            const startOfMonth = new Date(year, month, 1);
-            const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59, 999);
-
+            // Firebase onSnapshot provides real-time updates for the entire collection.
+            // Filtering for current month display happens client-side after data retrieval.
             window.onSnapshot(shiftsColRef, (snapshot) => {
                 shifts = [];
                 snapshot.forEach(doc => {
                     const data = doc.data();
-                    const shiftDate = data.date.toDate();
+                    const shiftDate = data.date.toDate(); // Firestore Timestamp.toDate() gives local Date object
                     const startTime = data.startTime && data.startTime.toDate ? data.startTime.toDate() : new Date(data.startTime);
                     const endTime = data.endTime && data.endTime.toDate ? data.endTime.toDate() : new Date(data.endTime);
 
                     // Filter shifts to only include the currently displayed month
-                    // Also filter for shifts that actually fall within the current month/year being rendered
                     if (shiftDate.getFullYear() === year && shiftDate.getMonth() === month) {
                         shifts.push({ id: doc.id, ...data, date: shiftDate, startTime: startTime, endTime: endTime });
                     }
@@ -1741,7 +1754,8 @@
             document.querySelectorAll('[id^="shift-info-"]').forEach(div => div.textContent = '');
 
             shifts.forEach(shift => {
-                const dateStr = shift.date.toISOString().split('T')[0];
+                // Use helper to get the correct YYYY-MM-DD string for comparison
+                const dateStr = formatDateToYYYYMMDD(shift.date);
                 const shiftInfoDiv = document.getElementById(`shift-info-${dateStr}`);
                 if (shiftInfoDiv) {
                     const startTime = shift.startTime instanceof Date ? shift.startTime : new Date(shift.startTime.seconds * 1000);
@@ -1755,14 +1769,17 @@
         }
 
         let editingShiftId = null;
-        let currentShiftDate = null;
+        let currentShiftDate = null; // Stores the YYYY-MM-DD string
 
         function openShiftModal(dateStr) {
             currentShiftDate = dateStr;
-            const shiftDate = new Date(dateStr);
+            // Parse dateStr (e.g., "YYYY-MM-DD") and create a local Date object explicitly
+            const [year, monthIndex, day] = dateStr.split('-').map(Number);
+            const shiftDate = new Date(year, monthIndex - 1, day); // Correctly creates a local date object
+            shiftDate.setHours(0, 0, 0, 0); // Ensure it's explicitly at local midnight for consistency
             document.getElementById('shift-modal-title').textContent = `${shiftDate.getMonth() + 1}月${shiftDate.getDate()}日のシフト`;
 
-            const existingShift = shifts.find(s => s.date.toISOString().split('T')[0] === dateStr);
+            const existingShift = shifts.find(s => formatDateToYYYYMMDD(s.date) === dateStr); // Use helper for comparison
 
             if (existingShift) {
                 editingShiftId = existingShift.id;
@@ -1809,19 +1826,28 @@
                 return;
             }
 
-            const shiftDate = new Date(currentShiftDate);
-            const startDateTime = new Date(`${currentShiftDate}T${startTimeStr}:00`);
-            const endDateTime = new Date(`${currentShiftDate}T${endTimeStr}:00`);
+            // Parse the ISO-like string into components to create a local Date object
+            const [year, monthIndex, day] = currentShiftDate.split('-').map(Number);
+            const dateForShift = new Date(year, monthIndex - 1, day); // Base date for the shift (local)
+            dateForShift.setHours(0, 0, 0, 0); // Explicitly set to local midnight
 
-            if (startDateTime >= endDateTime) {
-                showMessageBox("開始時間は終了時間より前に設定してください。", 'error');
-                return;
+            // Construct startDateTime and endDateTime using the local date components and time
+            const startTimeParts = startTimeStr.split(':').map(Number);
+            const startDateTime = new Date(dateForShift.getFullYear(), dateForShift.getMonth(), dateForShift.getDate(), startTimeParts[0], startTimeParts[1]);
+
+            const endTimeParts = endTimeStr.split(':').map(Number);
+            let endDateTime = new Date(dateForShift.getFullYear(), dateForShift.getMonth(), dateForShift.getDate(), endTimeParts[0], endTimeParts[1]);
+
+            // Handle overnight shifts: If end time is earlier than start time on the same day, assume it rolls over to next day
+            if (startDateTime.getTime() >= endDateTime.getTime()) {
+                 endDateTime.setDate(endDateTime.getDate() + 1); // Add one day
             }
 
+
             const shiftData = {
-                date: shiftDate,
-                startTime: startDateTime,
-                endTime: endDateTime,
+                date: dateForShift, // Save the local date object (midnight local time)
+                startTime: startDateTime, // Save the specific local datetime
+                endTime: endDateTime,   // Save the specific local datetime
                 breakTime: breakTime,
                 notes: notes,
                 userId: userId
@@ -1901,12 +1927,13 @@
 
                 const listItem = document.createElement('li');
                 listItem.classList.add('bg-white', 'p-4', 'rounded-lg', 'shadow-sm', 'mb-2', 'flex', 'justify-between', 'items-center');
+                // Use helper to get the correct YYYY-MM-DD string for onclick
                 listItem.innerHTML = `
                     <div>
                         <p class="font-semibold text-gray-800">${date}</p>
                         <p class="text-sm text-gray-600">${formattedStartTime} - ${formattedEndTime} (休憩: ${breakTime}分)${notes}</p>
                     </div>
-                    <button class="text-blue-500 hover:text-blue-700 text-sm" onclick="openShiftModal('${shift.date.toISOString().split('T')[0]}')">編集</button>
+                    <button class="text-blue-500 hover:text-blue-700 text-sm" onclick="openShiftModal('${formatDateToYYYYMMDD(shift.date)}')">編集</button>
                 `;
                 myShiftsList.appendChild(listItem);
             });
@@ -1920,12 +1947,12 @@
             const totalEstimatedLabel = document.getElementById('total-estimated-label');
 
             // Filter shifts for the current month/year being displayed
-            const currentMonthShifts = shifts.filter(shift =>
+            const filteredShifts = shifts.filter(shift =>
                 shift.date.getMonth() === currentMonth.getMonth() &&
                 shift.date.getFullYear() === currentMonth.getFullYear()
             );
 
-            if (currentMonthShifts.length === 0) {
+            if (filteredShifts.length === 0) {
                 salaryResultDiv.innerHTML = '<p class="text-center text-gray-500">シフトが登録されていません。</p>';
                 earnedBar.style.width = '0%';
                 earnedAmountLabel.textContent = '0 円';
@@ -1941,7 +1968,7 @@
             const today = new Date();
             today.setHours(0, 0, 0, 0);
 
-            currentMonthShifts.forEach(shift => {
+            filteredShifts.forEach(shift => {
                 const start = shift.startTime instanceof Date ? shift.startTime : new Date(shift.startTime.seconds * 1000);
                 const end = shift.endTime instanceof Date ? shift.endTime : new Date(shift.endTime.seconds * 1000);
                 const breakMinutes = shift.breakTime || 0;
@@ -2080,8 +2107,13 @@
                 paymentMethodName = paymentMethodValue.substring(7); // Remove "credit-" prefix
             }
 
+            // Create Date object using local time components to avoid UTC offset issues
+            const [year, monthIndex, day] = expenseDateStr.split('-').map(Number);
+            const expenseDate = new Date(year, monthIndex - 1, day);
+            expenseDate.setHours(0, 0, 0, 0); // Ensure it's explicitly at local midnight for consistency
+
             const expenseData = {
-                date: new Date(expenseDateStr),
+                date: expenseDate, // Store as local date (midnight local time)
                 category: expenseCategory,
                 amount: expenseAmount,
                 notes: expenseNotes,
@@ -2093,7 +2125,7 @@
             try {
                 await window.addDoc(expensesColRef, expenseData);
                 showMessageBox("支出を記録しました！");
-                document.getElementById('expense-date').value = new Date().toISOString().split('T')[0];
+                document.getElementById('expense-date').value = formatDateToYYYYMMDD(new Date()); // Reset dropdown
                 document.getElementById('expense-category').value = '食費';
                 document.getElementById('expense-amount').value = '';
                 document.getElementById('expense-notes').value = '';
@@ -2420,7 +2452,8 @@
                 showExpenseInputBtn.addEventListener('click', () => {
                     console.log("Show Expense Input button clicked.");
                     showPage('expense-input-page');
-                    document.getElementById('expense-date').value = new Date().toISOString().split('T')[0];
+                    // Initialize expense date to today's date (formatted correctly)
+                    document.getElementById('expense-date').value = formatDateToYYYYMMDD(new Date());
                     fetchExpenses();
                 });
             } else {
@@ -2557,7 +2590,9 @@
 
             // Initial page display
             showPage('home-page');
+            toggleHeaderBackButton(false); // Ensure back button is hidden on home page initially
         });
     </script>
 </body>
 </html>
+
