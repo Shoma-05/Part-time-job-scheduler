@@ -1,0 +1,2563 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>アルバイト給料・支出管理</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons (for icons like calendar, yen, gear, etc.) -->
+    <script src="https://unpkg.com/@phosphor-icons/web@2.0.3/dist/phosphor.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            overflow-x: hidden; /* Prevent horizontal scroll on the whole page */
+        }
+        /* Adjusted padding-top for main content to account for fixed header */
+        main {
+            padding-top: 64px; /* Header height */
+            padding-bottom: 72px; /* Space for the global fixed bottom nav */
+        }
+        .page-content {
+            min-height: calc(100vh - 64px - 72px); /* Adjust for header and global fixed bottom nav height */
+        }
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 8px;
+        }
+        .calendar-day {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 70px; /* Adjusted for better mobile fit */
+            padding: 8px 4px; /* Added internal padding for content */
+        }
+        .bottom-nav-tab {
+            flex: 1;
+            padding: 1rem;
+            text-align: center;
+            cursor: pointer;
+            transition: background-color 0.3s, color 0.3s;
+            border-radius: 0.5rem;
+        }
+        /* Custom scrollbar for modals */
+        .modal-body {
+            max-height: 70vh; /* Limit height to enable scrolling */
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <!-- Message Box -->
+    <div id="message-box" class="fixed bottom-4 right-4 p-4 rounded-lg shadow-lg z-50 opacity-0 pointer-events-none transition-opacity duration-300">
+        <p id="message-text"></p>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-[100] hidden">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500"></div>
+        <p class="ml-4 text-white text-lg">読み込み中...</p>
+    </div>
+
+    <!-- Header -->
+    <header class="fixed top-0 left-0 w-full bg-white shadow-md p-4 flex justify-between items-center z-10 h-16">
+        <!-- New universal Back Button in Header -->
+        <button id="header-back-btn" class="py-2 px-4 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors text-white font-semibold hidden">
+            戻る
+        </button>
+        <!-- Centered Title -->
+        <h1 id="header-title" class="text-2xl font-bold text-blue-600 absolute left-1/2 -translate-x-1/2">バイト管理</h1>
+        <!-- Placeholder for right alignment (hamburger menu removed) -->
+        <div class="w-12"></div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="p-4">
+        <!-- Home Page -->
+        <section id="home-page" class="page-content flex flex-col items-center justify-center space-y-6">
+            <button id="show-shift-calendar" class="w-full max-w-sm bg-blue-600 text-white py-5 px-6 rounded-xl shadow-lg hover:bg-blue-700 transition-colors duration-300 transform hover:scale-105 text-2xl font-semibold">
+                バイトシフト表
+            </button>
+            <button id="show-expense-input" class="w-full max-w-sm bg-green-600 text-white py-5 px-6 rounded-xl shadow-lg hover:bg-green-700 transition-colors duration-300 transform hover:scale-105 text-2xl font-semibold">
+                支出計算
+            </button>
+            <button id="show-summary-display" class="w-full max-w-sm bg-purple-600 text-white py-5 px-6 rounded-xl shadow-lg hover:bg-purple-700 transition-colors duration-300 transform hover:scale-105 text-2xl font-semibold">
+                一括表示
+            </button>
+        </section>
+
+        <!-- Shift Calendar Page (now includes My Shifts and Salary Calculation as tabs) -->
+        <section id="shift-calendar-page" class="page-content hidden">
+            <!-- Title only, back button moved to header -->
+            <div class="flex items-center mb-6">
+                <h3 id="shift-page-title" class="text-xl font-bold text-gray-800">マイシフト</h3> <!-- Dynamic title -->
+            </div>
+
+            <!-- My Shifts Tab Content -->
+            <div id="my-shifts-content" class="pb-4"> <!-- Removed pb-20 as bottom nav is now global -->
+                <div class="bg-white p-6 rounded-xl shadow-md mb-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <button id="prev-month-btn" class="py-2 px-4 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors text-white font-semibold">
+                            先月
+                        </button>
+                        <h2 id="current-month-year" class="text-2xl font-bold text-gray-800"></h2>
+                        <button id="next-month-btn" class="py-2 px-4 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors text-white font-semibold">
+                            来月
+                        </button>
+                    </div>
+                    <div class="calendar-grid text-center font-semibold text-gray-600 mb-4">
+                        <div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div>
+                    </div>
+                    <div id="calendar-days" class="calendar-grid">
+                        <!-- Calendar days will be rendered here by JavaScript -->
+                    </div>
+                </div>
+
+                <div id="my-shifts-list-container" class="mt-4">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">今月のシフト一覧</h3>
+                    <ul id="my-shifts-list" class="space-y-3">
+                        <!-- Shifts will be rendered here -->
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Salary Calculation Tab Content -->
+            <div id="salary-calculation-content" class="hidden pb-4"> <!-- Removed pb-20 as bottom nav is now global -->
+                <div class="bg-white p-6 rounded-xl shadow-md">
+                    <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+                        <h2 class="text-2xl font-bold text-gray-800">給料計算</h2>
+                        <!-- Salary Settings button - made wider and more prominent -->
+                        <button id="open-salary-settings-btn" class="bg-blue-500 text-white px-8 py-3 rounded-lg shadow hover:bg-blue-600 transition-colors text-lg font-semibold w-full md:w-auto">
+                            <i class="ph ph-gear-six mr-2"></i>設定
+                        </button>
+                    </div>
+                    <div id="salary-result" class="mt-4">
+                        <p class="text-center text-gray-500">シフトを登録すると給料が計算されます。</p>
+                    </div>
+                    <!-- New Salary Progress Bar -->
+                    <div class="bg-white p-6 rounded-lg shadow-md mt-4">
+                        <h3 class="text-xl font-bold text-gray-800 mb-4">給料進捗</h3>
+                        <div class="relative h-8 bg-gray-200 rounded-full overflow-hidden">
+                            <div id="earned-bar" class="absolute h-full bg-blue-600 rounded-full transition-all duration-500" style="width: 0%;"></div>
+                            <div class="absolute inset-0 flex items-center justify-between px-3 text-sm font-semibold text-white">
+                                <span id="earned-amount-label" class="text-gray-800">0 円</span>
+                                <span id="total-estimated-label" class="text-gray-800">0 円</span>
+                            </div>
+                        </div>
+                        <p class="text-sm text-gray-600 text-right mt-2">（今稼いだ額 / 今月の見込み）</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Expense Input Page -->
+        <section id="expense-input-page" class="page-content hidden">
+            <div class="flex items-center mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">支出を記録</h2>
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow-md">
+                <div class="space-y-4">
+                    <div>
+                        <label for="expense-date" class="block text-gray-700 font-medium mb-1">日付</label>
+                        <input type="date" id="expense-date" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <!-- Payment Method Selection (NEW) -->
+                    <div>
+                        <label for="expense-payment-method" class="block text-gray-700 font-medium mb-1">支払い方法</label>
+                        <select id="expense-payment-method" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                            <option value="cash">現金</option>
+                            <!-- Dynamically loaded credit/debit cards -->
+                        </select>
+                    </div>
+                    <div>
+                        <label for="expense-category" class="block text-gray-700 font-medium mb-1">項目</label>
+                        <select id="expense-category" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                            <option value="食費">食費</option>
+                            <option value="交通費">交通費</option>
+                            <option value="娯楽費">娯楽費</option>
+                            <option value="書籍費">書籍費</option>
+                            <option value="日用品">日用品</option>
+                            <option value="その他">その他</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="expense-amount" class="block text-gray-700 font-medium mb-1">金額 (円)</label>
+                        <input type="number" id="expense-amount" placeholder="例: 1500" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label for="expense-notes" class="block text-gray-700 font-medium mb-1">メモ (任意)</label>
+                        <textarea id="expense-notes" rows="3" placeholder="例: ランチ代" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"></textarea>
+                    </div>
+                    <button id="save-expense-btn" class="w-full bg-green-600 text-white py-3 px-6 rounded-lg shadow-md hover:bg-green-700 transition-colors font-semibold text-lg">
+                        支出を記録する
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-6 bg-white rounded-xl shadow-md overflow-hidden">
+                <button id="toggle-expense-list" class="w-full flex justify-between items-center p-4 bg-gray-100 text-gray-800 font-bold text-lg rounded-t-xl hover:bg-gray-200 transition-colors">
+                    <span>今月の支出一覧</span>
+                    <i class="ph ph-caret-down text-xl transform transition-transform duration-300" id="expense-list-caret"></i>
+                </button>
+                <div id="expense-list-content" class="p-6 hidden">
+                    <p class="text-sm text-gray-600 mb-4">合計: <span id="total-monthly-expense" class="font-bold">0</span> 円</p>
+                    <ul id="expense-list" class="space-y-3">
+                        <!-- Expenses will be rendered here -->
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- Bank Page -->
+        <section id="bank-page" class="page-content hidden">
+            <div class="flex items-center mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">銀行管理</h2>
+            </div>
+            <div class="bg-white p-6 rounded-xl shadow-md space-y-4">
+                <div>
+                    <label for="bank-balance" class="block text-gray-700 font-medium mb-1">現在の銀行残高 (円)</label>
+                    <input type="number" id="bank-balance" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="payday-bank-settings" class="block text-gray-700 font-medium mb-1">給料日 (日)</label>
+                    <input type="number" id="payday-bank-settings" min="1" max="31" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <button id="save-bank-main-settings-btn" class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-colors font-semibold text-lg">
+                    銀行情報を保存
+                </button>
+
+                <!-- Debit Card Settings (NEW) -->
+                <div class="mt-6 pt-4 border-t border-gray-200">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">デビットカード設定</h3>
+                    <button id="add-debit-card-btn" class="w-full bg-blue-500 text-white py-2 px-4 rounded-lg shadow-sm hover:bg-blue-600 transition-colors font-semibold text-sm mb-3">
+                        新しいデビットカードを追加
+                    </button>
+                    <div id="debit-card-list" class="space-y-3">
+                        <p class="text-center text-gray-500" id="no-debit-cards-message">デビットカードがありません。</p>
+                    </div>
+                </div>
+
+                <div class="mt-6 pt-4 border-t border-gray-200">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">クレジットカード設定</h3>
+                    <button id="add-credit-card-btn" class="w-full bg-green-500 text-white py-2 px-4 rounded-lg shadow-sm hover:bg-green-600 transition-colors font-semibold text-sm mb-3">
+                        新しいクレジットカードを追加
+                    </button>
+                    <div id="credit-card-list" class="space-y-3">
+                        <p class="text-center text-gray-500" id="no-credit-cards-message">クレジットカードがありません。</p>
+                    </div>
+                </div>
+
+                <!-- Loan Settings Section -->
+                <div class="mt-6 pt-4 border-t border-gray-200">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">ローン設定</h3>
+                    <button id="add-loan-btn" class="w-full bg-yellow-500 text-white py-2 px-4 rounded-lg shadow-sm hover:bg-yellow-600 transition-colors font-semibold text-sm mb-3">
+                        新しいローンを追加
+                    </button>
+                    <div id="loan-list" class="space-y-3">
+                        <p class="text-center text-gray-500" id="no-loans-message">ローンがありません。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Summary Display Page -->
+        <section id="summary-display-page" class="page-content hidden">
+            <div class="flex items-center mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">一括表示</h2>
+            </div>
+            <div id="summary-content" class="space-y-6">
+                <!-- Summary will be rendered here -->
+            </div>
+            <!-- Bank Summary Graph and Daily Details (MOVED HERE) -->
+            <div class="mt-6 bg-white p-6 rounded-xl shadow-md">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">残高推移</h3>
+                <div class="flex justify-between items-center mb-4">
+                    <button id="prev-graph-month-btn" class="py-1 px-3 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors text-white font-semibold">
+                        先月
+                    </button>
+                    <h4 id="current-graph-month-year" class="text-lg font-bold text-gray-800"></h4>
+                    <button id="next-graph-month-btn" class="py-1 px-3 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors text-white font-semibold">
+                        来月
+                    </button>
+                </div>
+                <div class="relative h-64 md:h-80">
+                    <canvas id="bank-balance-chart" class="w-full h-full"></canvas>
+                    <div id="chart-tooltip" class="absolute bg-gray-800 text-white text-xs p-2 rounded-md shadow-lg hidden pointer-events-none"></div>
+                </div>
+                <div id="daily-details-container" class="mt-6 border-t border-gray-200 pt-4">
+                    <h4 class="text-lg font-semibold text-gray-800 mb-2">選択した日の詳細</h4>
+                    <div id="selected-day-details" class="text-gray-700">
+                        <p class="text-center text-gray-500">グラフ上の日付をクリックして詳細を表示します。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Global Bottom Navigation (NEW: Moved outside main content) -->
+    <div id="global-bottom-nav" class="fixed bottom-0 left-0 w-full bg-white shadow-lg flex justify-around p-2 rounded-t-xl z-20 hidden h-[72px]">
+        <!-- Shift Navigation Group -->
+        <div id="shift-nav-group" class="flex w-full hidden">
+            <button id="bottom-nav-shift" class="bottom-nav-tab text-gray-600 hover:bg-gray-100">
+                <i class="ph ph-calendar-blank text-xl"></i>
+                <span class="block text-xs mt-1">マイシフト</span>
+            </button>
+            <button id="bottom-nav-salary" class="bottom-nav-tab text-gray-600 hover:bg-gray-100">
+                <i class="ph ph-currency-yen text-xl"></i>
+                <span class="block text-xs mt-1">給料計算</span>
+            </button>
+        </div>
+        <!-- Expense/Bank Navigation Group -->
+        <div id="expense-bank-nav-group" class="flex w-full hidden">
+            <button id="bottom-nav-expense" class="bottom-nav-tab text-gray-600 hover:bg-gray-100">
+                <i class="ph ph-wallet text-xl"></i>
+                <span class="block text-xs mt-1">支出</span>
+            </button>
+            <button id="bottom-nav-bank" class="bottom-nav-tab text-gray-600 hover:bg-gray-100">
+                <i class="ph ph-bank text-xl"></i>
+                <span class="block text-xs mt-1">銀行</span>
+            </button>
+        </div>
+    </div>
+
+
+    <!-- Modals -->
+
+    <!-- Shift Modal -->
+    <div id="shift-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-40 hidden">
+        <div class="bg-white p-6 rounded-xl shadow-2xl w-11/12 max-w-md modal-body">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="shift-modal-title" class="text-xl font-bold text-gray-800">シフト追加・編集</h3>
+                <button id="close-shift-modal" class="p-2 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors">
+                    <i class="ph ph-x text-xl text-white"></i>
+                </button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label for="shift-start-time" class="block text-gray-700 font-medium mb-1">開始時間</label>
+                    <input type="time" id="shift-start-time" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="shift-end-time" class="block text-gray-700 font-medium mb-1">終了時間</label>
+                    <input type="time" id="shift-end-time" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="shift-break-time" class="block text-gray-700 font-medium mb-1">休憩時間 (分)</label>
+                    <input type="number" id="shift-break-time" value="0" min="0" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+
+                <!-- Shift Presets Section -->
+                <div class="mt-4 pt-4 border-t border-gray-200">
+                    <h4 class="text-lg font-semibold text-gray-800 mb-2">プリセット</h4>
+                    <button id="add-preset-btn" class="w-full bg-gray-200 text-gray-700 py-2 px-4 rounded-lg shadow-sm hover:bg-gray-300 transition-colors font-semibold text-sm mb-3">
+                        現在の時間をプリセットとして追加
+                    </button>
+                    <div id="preset-buttons-container" class="flex flex-wrap gap-2">
+                        <p class="text-sm text-gray-500" id="no-presets-message">プリセットがありません。</p>
+                    </div>
+                </div>
+
+                <div>
+                    <label for="shift-notes" class="block text-gray-700 font-medium mb-1">メモ (任意)</label>
+                    <textarea id="shift-notes" rows="2" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"></textarea>
+                </div>
+                <div class="flex space-x-2">
+                    <button id="cancel-shift-btn" class="w-full bg-gray-300 text-gray-800 py-3 px-6 rounded-lg shadow-md hover:bg-gray-400 transition-colors font-semibold text-lg">
+                        キャンセル
+                    </button>
+                    <button id="save-shift-btn" class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-colors font-semibold text-lg">
+                        保存
+                    </button>
+                </div>
+                <button id="delete-shift-btn" class="w-full bg-red-500 text-white py-3 px-6 rounded-lg shadow-md hover:bg-red-600 transition-colors font-semibold text-lg hidden mt-4">
+                    削除
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preset Name Input Modal -->
+    <div id="preset-name-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden">
+        <div class="bg-white p-6 rounded-xl shadow-2xl w-11/12 max-w-sm">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">プリセットの名前を入力</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="preset-name-input" class="block text-gray-700 font-medium mb-1">プリセット名</label>
+                    <input type="text" id="preset-name-input" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="例: 午前シフト">
+                </div>
+                <div class="flex space-x-2">
+                    <button id="cancel-preset-name-btn" class="w-full bg-gray-300 text-gray-800 py-3 px-6 rounded-lg shadow-md hover:bg-gray-400 transition-colors font-semibold text-lg">
+                        キャンセル
+                    </button>
+                    <button id="save-preset-name-btn" class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-colors font-semibold text-lg">
+                        保存
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Salary Settings Modal -->
+    <div id="salary-settings-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-40 hidden">
+        <div class="bg-white p-6 rounded-xl shadow-2xl w-11/12 max-w-md modal-body">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold text-gray-800">給料設定</h3>
+                <button id="close-salary-settings-modal" class="p-2 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors">
+                    <i class="ph ph-x text-xl text-white"></i>
+                </button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label for="weekday-wage" class="block text-gray-700 font-medium mb-1">平日の時給 (円)</label>
+                    <input type="number" id="weekday-wage" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="holiday-wage" class="block text-gray-700 font-medium mb-1">休日の時給 (円)</label>
+                    <input type="number" id="holiday-wage" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="transportation-cost" class="block text-gray-700 font-medium mb-1">交通費 (月額、円)</label>
+                    <input type="number" id="transportation-cost" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <button id="save-salary-settings-btn" class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-colors font-semibold text-lg">
+                    設定を保存
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Debit Card Modal (NEW) -->
+    <div id="debit-card-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden">
+        <div class="bg-white p-6 rounded-xl shadow-2xl w-11/12 max-w-md modal-body">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="debit-card-modal-title" class="text-xl font-bold text-gray-800">デビットカード追加・編集</h3>
+                <button id="close-debit-card-modal" class="p-2 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors">
+                    <i class="ph ph-x text-xl text-white"></i>
+                </button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label for="debit-card-name" class="block text-gray-700 font-medium mb-1">カード名</label>
+                    <input type="text" id="debit-card-name" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="例: 三菱UFJデビット">
+                </div>
+                <div class="flex space-x-2">
+                    <button id="cancel-debit-card-btn" class="w-full bg-gray-300 text-gray-800 py-3 px-6 rounded-lg shadow-md hover:bg-gray-400 transition-colors font-semibold text-lg">
+                        キャンセル
+                    </button>
+                    <button id="save-debit-card-btn" class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-colors font-semibold text-lg">
+                        保存
+                    </button>
+                </div>
+                <button id="delete-debit-card-btn" class="w-full bg-red-500 text-white py-3 px-6 rounded-lg shadow-md hover:bg-red-600 transition-colors font-semibold text-lg hidden mt-4">
+                    削除
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Credit Card Input Modal -->
+    <div id="credit-card-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden">
+        <div class="bg-white p-6 rounded-xl shadow-2xl w-11/12 max-w-md modal-body">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="credit-card-modal-title" class="text-xl font-bold text-gray-800">クレジットカード追加・編集</h3>
+                <button id="close-credit-card-modal" class="p-2 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors">
+                    <i class="ph ph-x text-xl text-white"></i>
+                </button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label for="credit-card-name" class="block text-gray-700 font-medium mb-1">カード名</label>
+                    <input type="text" id="credit-card-name" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="例: 楽天カード">
+                </div>
+                <div>
+                    <label for="credit-card-payment-date-input" class="block text-gray-700 font-medium mb-1">支払い日 (日)</label>
+                    <input type="number" id="credit-card-payment-date-input" min="1" max="31" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="credit-card-closing-date-input" class="block text-gray-700 font-medium mb-1">締め日 (日)</label>
+                    <input type="number" id="credit-card-closing-date-input" min="1" max="31" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div class="flex space-x-2">
+                    <button id="cancel-credit-card-btn" class="w-full bg-gray-300 text-gray-800 py-3 px-6 rounded-lg shadow-md hover:bg-gray-400 transition-colors font-semibold text-lg">
+                        キャンセル
+                    </button>
+                    <button id="save-credit-card-btn" class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-colors font-semibold text-lg">
+                        保存
+                    </button>
+                </div>
+                <button id="delete-credit-card-btn" class="w-full bg-red-500 text-white py-3 px-6 rounded-lg shadow-md hover:bg-red-600 transition-colors font-semibold text-lg hidden mt-4">
+                    削除
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loan Settings Modal -->
+    <div id="loan-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 hidden">
+        <div class="bg-white p-6 rounded-xl shadow-2xl w-11/12 max-w-md modal-body">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="loan-modal-title" class="text-xl font-bold text-gray-800">ローン追加・編集</h3>
+                <button id="close-loan-modal" class="p-2 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors">
+                    <i class="ph ph-x text-xl text-white"></i>
+                </button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label for="loan-name" class="block text-gray-700 font-medium mb-1">ローン名</label>
+                    <input type="text" id="loan-name" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="loan-amount" class="block text-gray-700 font-medium mb-1">金額 (円)</label>
+                    <input type="number" id="loan-amount" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="loan-payment-date" class="block text-gray-700 font-medium mb-1">支払い日 (日)</label>
+                    <input type="number" id="loan-payment-date" min="1" max="31" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="loan-remaining-payments" class="block text-gray-700 font-medium mb-1">残り支払い回数</label>
+                    <input type="number" id="loan-remaining-payments" min="0" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div class="flex space-x-2">
+                    <button id="cancel-loan-btn" class="w-full bg-gray-300 text-gray-800 py-3 px-6 rounded-lg shadow-md hover:bg-gray-400 transition-colors font-semibold text-lg">
+                        キャンセル
+                    </button>
+                    <button id="save-loan-btn" class="w-full bg-blue-600 text-white py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-colors font-semibold text-lg">
+                        保存
+                    </button>
+                </div>
+                <button id="delete-loan-btn" class="w-full bg-red-500 text-white py-3 px-6 rounded-lg shadow-md hover:bg-red-600 transition-colors font-semibold text-lg hidden mt-4">
+                    削除
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables for Firebase (accessible in the main script)
+        window.initializeApp = initializeApp;
+        window.getAuth = getAuth;
+        window.signInAnonymously = signInAnonymously;
+        window.signInWithCustomToken = signInWithCustomToken;
+        window.onAuthStateChanged = onAuthStateChanged;
+        window.getFirestore = getFirestore;
+        window.doc = doc;
+        window.getDoc = getDoc;
+        window.addDoc = addDoc;
+        window.setDoc = setDoc;
+        window.updateDoc = updateDoc;
+        window.deleteDoc = deleteDoc;
+        window.onSnapshot = onSnapshot;
+        window.collection = collection;
+        window.query = query;
+        window.where = where;
+        window.getDocs = getDocs;
+
+        // Expose global variables from Canvas environment
+        window.__app_id = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        window.__firebase_config = typeof __firebase_config !== 'undefined' ? window.__firebase_config : '{}';
+        window.__initial_auth_token = typeof __initial_auth_token !== 'undefined' ? window.__initial_auth_token : null;
+    </script>
+    <script type="module">
+        // Global variables for Firebase
+        let app;
+        let db;
+        let auth;
+        let userId = null;
+        let currentMonth = new Date(); // Tracks the month displayed in the calendar
+        let currentGraphDisplayMonth = new Date(); // Tracks the month displayed in the balance graph
+        let shiftPresets = []; // Stores user-defined shift presets
+
+        // New global object for bank settings
+        let bankSettings = {
+            bankBalance: 0,
+            payday: 25,
+            creditCards: [], // Array to store multiple credit cards
+            debitCards: [], // Array to store multiple debit cards (NEW)
+            loans: []
+        };
+
+        // Helper for showing messages
+        function showMessageBox(message, type = 'info') {
+            const messageBox = document.getElementById('message-box');
+            const messageText = document.getElementById('message-text');
+            messageText.textContent = message;
+            messageBox.className = `fixed bottom-4 right-4 p-4 rounded-lg shadow-lg z-50 transition-opacity duration-300 ${type === 'error' ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`;
+            messageBox.classList.remove('opacity-0', 'pointer-events-none');
+            messageBox.classList.add('opacity-100');
+
+            setTimeout(() => {
+                messageBox.classList.remove('opacity-100');
+                messageBox.classList.add('opacity-0', 'pointer-events-none');
+            }, 3000);
+        }
+
+        // Function to show loading overlay
+        function showLoading(show) {
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (show) {
+                loadingOverlay.classList.remove('hidden');
+            } else {
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+
+        // Function to show/hide header back button
+        function toggleHeaderBackButton(show) {
+            const headerBackBtn = document.getElementById('header-back-btn');
+            if (headerBackBtn) {
+                if (show) {
+                    headerBackBtn.classList.remove('hidden');
+                } else {
+                    headerBackBtn.classList.add('hidden');
+                }
+            }
+        }
+
+        // Function to change header title
+        function setHeaderTitle(title) {
+            const headerTitle = document.getElementById('header-title');
+            if (headerTitle) {
+                headerTitle.textContent = title;
+            }
+        }
+
+        // Function to toggle collapsible sections
+        function toggleCollapsible(buttonId, contentId, caretId) {
+            const content = document.getElementById(contentId);
+            const caret = document.getElementById(caretId);
+            if (content.classList.contains('hidden')) {
+                content.classList.remove('hidden');
+                caret.classList.remove('rotate-0');
+                caret.classList.add('rotate-180');
+            } else {
+                content.classList.add('hidden');
+                caret.classList.remove('rotate-180');
+                caret.classList.add('rotate-0');
+            }
+        }
+
+        // Function to switch between pages
+        function showPage(pageId) {
+            console.log(`Attempting to show page: ${pageId}`);
+            // Hide all page content sections
+            document.querySelectorAll('.page-content').forEach(page => {
+                page.classList.add('hidden');
+            });
+            // Show the requested page
+            const targetPage = document.getElementById(pageId);
+            if (targetPage) {
+                targetPage.classList.remove('hidden');
+                console.log(`Page '${pageId}' is now visible.`);
+            } else {
+                console.error(`Page element with ID '${pageId}' not found.`);
+                return; // Exit if page not found
+            }
+
+            // Manage global bottom navigation bar visibility and active state
+            const globalBottomNav = document.getElementById('global-bottom-nav');
+            const shiftNavGroup = document.getElementById('shift-nav-group');
+            const expenseBankNavGroup = document.getElementById('expense-bank-nav-group');
+
+            // Hide all nav groups first
+            if (shiftNavGroup) shiftNavGroup.classList.add('hidden');
+            if (expenseBankNavGroup) expenseBankNavGroup.classList.add('hidden');
+
+            // Reset active states for all nav buttons
+            document.querySelectorAll('.bottom-nav-tab').forEach(btn => {
+                btn.classList.remove('bg-blue-500', 'text-white');
+                btn.classList.add('text-gray-600', 'hover:bg-gray-100');
+            });
+
+            // Determine which nav group to show and which tab to activate by default
+            if (pageId === 'shift-calendar-page') {
+                if (globalBottomNav) globalBottomNav.classList.remove('hidden');
+                if (shiftNavGroup) shiftNavGroup.classList.remove('hidden');
+                // Default to My Shifts tab being active when entering shift-calendar-page
+                const bottomNavShift = document.getElementById('bottom-nav-shift');
+                if (bottomNavShift) {
+                    bottomNavShift.classList.add('bg-blue-500', 'text-white');
+                    bottomNavShift.classList.remove('text-gray-600', 'hover:bg-gray-100');
+                }
+                // Ensure correct content is shown for shift page default
+                const myShiftsContent = document.getElementById('my-shifts-content');
+                const salaryCalculationContent = document.getElementById('salary-calculation-content');
+                if (myShiftsContent) myShiftsContent.classList.remove('hidden');
+                if (salaryCalculationContent) salaryCalculationContent.classList.add('hidden');
+                const shiftPageTitle = document.getElementById('shift-page-title');
+                if (shiftPageTitle) shiftPageTitle.textContent = 'マイシフト';
+
+            } else if (pageId === 'expense-input-page') {
+                if (globalBottomNav) globalBottomNav.classList.remove('hidden');
+                if (expenseBankNavGroup) expenseBankNavGroup.classList.remove('hidden');
+                const bottomNavExpense = document.getElementById('bottom-nav-expense');
+                if (bottomNavExpense) {
+                    bottomNavExpense.classList.add('bg-blue-500', 'text-white');
+                    bottomNavExpense.classList.remove('text-gray-600', 'hover:bg-gray-100');
+                }
+                populatePaymentMethodDropdown(); // Ensure dropdown is updated
+            } else if (pageId === 'bank-page') {
+                if (globalBottomNav) globalBottomNav.classList.remove('hidden');
+                if (expenseBankNavGroup) expenseBankNavGroup.classList.remove('hidden');
+                const bottomNavBank = document.getElementById('bottom-nav-bank');
+                if (bottomNavBank) {
+                    bottomNavBank.classList.add('bg-blue-500', 'text-white');
+                    bottomNavBank.classList.remove('text-gray-600', 'hover:bg-gray-100');
+                }
+                renderBankDetails();
+                renderDebitCards();
+                renderCreditCards();
+                renderLoans();
+            } else if (pageId === 'summary-display-page') {
+                if (globalBottomNav) globalBottomNav.classList.add('hidden'); // Summary has no bottom nav
+                currentGraphDisplayMonth = new Date(); // Reset graph month to current when entering summary
+                renderSummary(); // This will trigger renderBankGraph
+            } else if (pageId === 'home-page') {
+                if (globalBottomNav) globalBottomNav.classList.add('hidden'); // Home page has no bottom nav
+            }
+
+            // Toggle header back button visibility and set header title
+            if (pageId === 'home-page') {
+                toggleHeaderBackButton(false);
+                setHeaderTitle('バイト管理');
+            } else {
+                toggleHeaderBackButton(true);
+                if (pageId === 'shift-calendar-page') {
+                    // Title is set by the sub-tab selection (My Shifts / Salary Calculation)
+                    // No need to set it here initially, as the default logic above already handles it.
+                } else if (pageId === 'expense-input-page') {
+                    setHeaderTitle('支出計算');
+                } else if (pageId === 'summary-display-page') {
+                    setHeaderTitle('一括表示');
+                } else if (pageId === 'bank-page') {
+                    setHeaderTitle('銀行管理');
+                }
+            }
+        }
+
+        // Firebase Initialization and Authentication
+        async function initFirebase() {
+            showLoading(true);
+            try {
+                const firebaseConfig = typeof window.__firebase_config !== 'undefined' ? JSON.parse(window.__firebase_config) : {};
+                const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+
+                app = window.initializeApp(firebaseConfig);
+                db = window.getFirestore(app);
+                auth = window.getAuth(app);
+
+                // Listen for auth state changes
+                window.onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        console.log("Firebase initialized. User ID:", userId);
+                        // After successful authentication, load initial data
+                        await loadInitialData();
+                        showLoading(false);
+                    } else {
+                        // Sign in anonymously if no user is logged in
+                        try {
+                            if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
+                                await window.signInWithCustomToken(auth, window.__initial_auth_token);
+                            } else {
+                                await window.signInAnonymously(auth);
+                            }
+                        } catch (error) {
+                            console.error("Error signing in:", error);
+                            showMessageBox("認証に失敗しました。", 'error');
+                            showLoading(false);
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+                showMessageBox("Firebaseの初期化に失敗しました。", 'error');
+                showLoading(false);
+            }
+        }
+
+        // Load initial data after authentication
+        async function loadInitialData() {
+            if (!userId) {
+                console.error("User ID not available for data loading.");
+                return;
+            }
+            // Load settings
+            await loadSalarySettings();
+            await loadBankSettings();
+            renderCalendar(currentMonth.getFullYear(), currentMonth.getMonth());
+            fetchExpenses();
+            fetchShiftPresets();
+        }
+
+        // --- Salary Settings ---
+        let currentSalarySettings = {
+            weekdayWage: 1000,
+            holidayWage: 1250,
+            transportationCost: 5000,
+        };
+
+        async function loadSalarySettings() {
+            if (!userId) return;
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const settingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/user_settings`);
+            try {
+                const docSnap = await window.getDoc(settingsRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    currentSalarySettings.weekdayWage = data.weekdayWage !== undefined ? data.weekdayWage : currentSalarySettings.weekdayWage;
+                    currentSalarySettings.holidayWage = data.holidayWage !== undefined ? data.holidayWage : currentSalarySettings.holidayWage;
+                    currentSalarySettings.transportationCost = data.transportationCost !== undefined ? data.transportationCost : currentSalarySettings.transportationCost;
+                    console.log("Loaded salary settings (partial):", currentSalarySettings);
+                } else {
+                    console.log("No salary settings found, using defaults.");
+                }
+                document.getElementById('weekday-wage').value = currentSalarySettings.weekdayWage;
+                document.getElementById('holiday-wage').value = currentSalarySettings.holidayWage;
+                document.getElementById('transportation-cost').value = currentSalarySettings.transportationCost;
+            } catch (e) {
+                console.error("Error loading salary settings:", e);
+                showMessageBox("給料設定の読み込みに失敗しました。", 'error');
+            }
+        }
+
+        async function saveSalarySettings() {
+            if (!userId) {
+                showMessageBox("ユーザー認証が完了していません。", 'error');
+                return;
+            }
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const settingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/user_settings`);
+
+            const weekdayWage = parseInt(document.getElementById('weekday-wage').value);
+            const holidayWage = parseInt(document.getElementById('holiday-wage').value);
+            const transportationCost = parseInt(document.getElementById('transportation-cost').value);
+
+            if (isNaN(weekdayWage) || isNaN(holidayWage) || isNaN(transportationCost)) {
+                showMessageBox("時給、交通費は数字で入力してください。", 'error');
+                return;
+            }
+
+            currentSalarySettings.weekdayWage = weekdayWage;
+            currentSalarySettings.holidayWage = holidayWage;
+            currentSalarySettings.transportationCost = transportationCost;
+
+            try {
+                await window.setDoc(settingsRef, {
+                    weekdayWage: currentSalarySettings.weekdayWage,
+                    holidayWage: currentSalarySettings.holidayWage,
+                    transportationCost: currentSalarySettings.transportationCost
+                }, { merge: true });
+                showMessageBox("給料設定を保存しました！");
+                closeSalarySettingsModal();
+                renderSalaryCalculation();
+            } catch (e) {
+                console.error("Error saving salary settings:", e);
+                showMessageBox("給料設定の保存に失敗しました。", 'error');
+            }
+        }
+
+        function openSalarySettingsModal() {
+            document.getElementById('weekday-wage').value = currentSalarySettings.weekdayWage;
+            document.getElementById('holiday-wage').value = currentSalarySettings.holidayWage;
+            document.getElementById('transportation-cost').value = currentSalarySettings.transportationCost;
+            document.getElementById('salary-settings-modal').classList.remove('hidden');
+        }
+
+        function closeSalarySettingsModal() {
+            document.getElementById('salary-settings-modal').classList.add('hidden');
+        }
+
+        // --- Bank Settings Management ---
+        let editingCreditCardId = null;
+        let editingDebitCardId = null;
+        let editingLoanId = null;
+
+        async function loadBankSettings() {
+            if (!userId) return;
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+            try {
+                const docSnap = await window.getDoc(bankSettingsRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    bankSettings.bankBalance = data.bankBalance !== undefined ? data.bankBalance : bankSettings.bankBalance;
+                    bankSettings.payday = data.payday !== undefined ? data.payday : bankSettings.payday;
+                    bankSettings.creditCards = Array.isArray(data.creditCards) ? data.creditCards : [];
+                    bankSettings.debitCards = Array.isArray(data.debitCards) ? data.debitCards : [];
+                    bankSettings.loans = Array.isArray(data.loans) ? data.loans : [];
+                    console.log("Loaded bank settings:", bankSettings);
+                } else {
+                    console.log("No bank settings found, using defaults.");
+                }
+            } catch (e) {
+                console.error("Error loading bank settings:", e);
+                showMessageBox("銀行設定の読み込みに失敗しました。", 'error');
+            }
+        }
+
+        async function saveBankMainSettings() {
+            if (!userId) {
+                showMessageBox("ユーザー認証が完了していません。", 'error');
+                return;
+            }
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+
+            const bankBalance = parseInt(document.getElementById('bank-balance').value);
+            const payday = parseInt(document.getElementById('payday-bank-settings').value);
+
+            if (isNaN(bankBalance) || isNaN(payday) || payday < 1 || payday > 31) {
+                showMessageBox("銀行残高、給料日は正しい数字で入力してください。", 'error');
+                return;
+            }
+
+            bankSettings.bankBalance = bankBalance;
+            bankSettings.payday = payday;
+
+            try {
+                await window.setDoc(bankSettingsRef, {
+                    bankBalance: bankSettings.bankBalance,
+                    payday: bankSettings.payday,
+                    creditCards: bankSettings.creditCards,
+                    debitCards: bankSettings.debitCards,
+                    loans: bankSettings.loans
+                }, { merge: true });
+                showMessageBox("銀行情報を保存しました！");
+                renderBankDetails();
+                renderBankGraph(currentGraphDisplayMonth.getFullYear(), currentGraphDisplayMonth.getMonth()); // Re-render graph after settings change
+            } catch (e) {
+                console.error("Error saving bank main settings:", e);
+                showMessageBox("銀行情報の保存に失敗しました。", 'error');
+            }
+        }
+
+        function renderBankDetails() {
+            const bankBalanceInput = document.getElementById('bank-balance');
+            const paydayBankSettingsInput = document.getElementById('payday-bank-settings');
+
+            if (bankBalanceInput) {
+                bankBalanceInput.value = bankSettings.bankBalance;
+            }
+            if (paydayBankSettingsInput) {
+                paydayBankSettingsInput.value = bankSettings.payday;
+            }
+        }
+
+        // --- Debit Card Management ---
+        function renderDebitCards() {
+            const debitCardListContainer = document.getElementById('debit-card-list');
+            debitCardListContainer.innerHTML = '';
+
+            if (bankSettings.debitCards.length === 0) {
+                const noDebitCardsMessage = document.createElement('p');
+                noDebitCardsMessage.classList.add('text-center', 'text-gray-500');
+                noDebitCardsMessage.id = 'no-debit-cards-message';
+                noDebitCardsMessage.textContent = 'デビットカードがありません。';
+                debitCardListContainer.appendChild(noDebitCardsMessage);
+                return;
+            } else {
+                const noDebitCardsMessage = document.getElementById('no-debit-cards-message');
+                if (noDebitCardsMessage) noDebitCardsMessage.remove();
+            }
+
+            bankSettings.debitCards.forEach((card, index) => {
+                const cardItem = document.createElement('div');
+                cardItem.classList.add('bg-gray-50', 'p-4', 'rounded-lg', 'shadow-sm', 'flex', 'justify-between', 'items-center');
+                cardItem.innerHTML = `
+                    <div>
+                        <p class="font-semibold text-gray-800">${card.name}</p>
+                        <p class="text-sm text-gray-600">デビットカード</p>
+                    </div>
+                    <button class="text-blue-500 hover:text-blue-700 text-sm" data-index="${index}">編集</button>
+                `;
+                debitCardListContainer.appendChild(cardItem);
+
+                cardItem.querySelector('button').addEventListener('click', (event) => {
+                    const indexToEdit = parseInt(event.target.dataset.index);
+                    openDebitCardModal(indexToEdit);
+                });
+            });
+        }
+
+        function openDebitCardModal(index = null) {
+            const debitCardModalTitle = document.getElementById('debit-card-modal-title');
+            const debitCardNameInput = document.getElementById('debit-card-name');
+            const deleteDebitCardBtn = document.getElementById('delete-debit-card-btn');
+
+            editingDebitCardId = index;
+
+            if (index !== null && bankSettings.debitCards[index]) {
+                const card = bankSettings.debitCards[index];
+                debitCardModalTitle.textContent = 'デビットカード編集';
+                debitCardNameInput.value = card.name;
+                deleteDebitCardBtn.classList.remove('hidden');
+            } else {
+                debitCardModalTitle.textContent = '新しいデビットカードを追加';
+                debitCardNameInput.value = '';
+                deleteDebitCardBtn.classList.add('hidden');
+            }
+            document.getElementById('debit-card-modal').classList.remove('hidden');
+        }
+
+        function closeDebitCardModal() {
+            document.getElementById('debit-card-modal').classList.add('hidden');
+            editingDebitCardId = null;
+        }
+
+        async function saveDebitCard() {
+            if (!userId) {
+                showMessageBox("ユーザー認証が完了していません。", 'error');
+                return;
+            }
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+
+            const name = document.getElementById('debit-card-name').value.trim();
+
+            if (!name) {
+                showMessageBox("カード名を入力してください。", 'error');
+                return;
+            }
+
+            const newCard = { name };
+
+            if (editingDebitCardId !== null) {
+                bankSettings.debitCards[editingDebitCardId] = newCard;
+                showMessageBox(`デビットカード "${name}" を更新しました！`);
+            } else {
+                bankSettings.debitCards.push(newCard);
+                showMessageBox(`デビットカード "${name}" を追加しました！`);
+            }
+
+            try {
+                await window.setDoc(bankSettingsRef, { debitCards: bankSettings.debitCards }, { merge: true });
+                closeDebitCardModal();
+                renderDebitCards();
+                populatePaymentMethodDropdown(); // Update dropdown
+            } catch (e) {
+                console.error("Error saving debit card:", e);
+                showMessageBox("デビットカードの保存に失敗しました。", 'error');
+            }
+        }
+
+        async function deleteDebitCard() {
+            if (editingDebitCardId === null || !userId) {
+                showMessageBox("削除するデビットカードが選択されていません。", 'error');
+                return;
+            }
+
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+
+            const cardName = bankSettings.debitCards[editingDebitCardId].name;
+            bankSettings.debitCards.splice(editingDebitCardId, 1);
+
+            try {
+                await window.setDoc(bankSettingsRef, { debitCards: bankSettings.debitCards }, { merge: true });
+                showMessageBox(`デビットカード "${cardName}" を削除しました！`);
+                closeDebitCardModal();
+                renderDebitCards();
+                populatePaymentMethodDropdown(); // Update dropdown
+            } catch (e) {
+                console.error("Error deleting debit card:", e);
+                showMessageBox("デビットカードの削除に失敗しました。", 'error');
+            }
+        }
+
+        // --- Credit Card Management ---
+        function renderCreditCards() {
+            const creditCardListContainer = document.getElementById('credit-card-list');
+            creditCardListContainer.innerHTML = '';
+
+            if (bankSettings.creditCards.length === 0) {
+                const noCreditCardsMessage = document.createElement('p');
+                noCreditCardsMessage.classList.add('text-center', 'text-gray-500');
+                noCreditCardsMessage.id = 'no-credit-cards-message';
+                noCreditCardsMessage.textContent = 'クレジットカードがありません。';
+                creditCardListContainer.appendChild(noCreditCardsMessage);
+                return;
+            } else {
+                const noCreditCardsMessage = document.getElementById('no-credit-cards-message');
+                if (noCreditCardsMessage) noCreditCardsMessage.remove();
+            }
+
+            bankSettings.creditCards.forEach((card, index) => {
+                const cardItem = document.createElement('div');
+                cardItem.classList.add('bg-gray-50', 'p-4', 'rounded-lg', 'shadow-sm', 'flex', 'justify-between', 'items-center');
+                cardItem.innerHTML = `
+                    <div>
+                        <p class="font-semibold text-gray-800">${card.name}</p>
+                        <p class="text-sm text-gray-600">支払い日: ${card.paymentDate}日, 締め日: ${card.closingDate}日</p>
+                    </div>
+                    <button class="text-blue-500 hover:text-blue-700 text-sm" data-index="${index}">編集</button>
+                `;
+                creditCardListContainer.appendChild(cardItem);
+
+                cardItem.querySelector('button').addEventListener('click', (event) => {
+                    const indexToEdit = parseInt(event.target.dataset.index);
+                    openCreditCardModal(indexToEdit);
+                });
+            });
+        }
+
+        function openCreditCardModal(index = null) {
+            const creditCardModalTitle = document.getElementById('credit-card-modal-title');
+            const creditCardNameInput = document.getElementById('credit-card-name');
+            const creditCardPaymentDateInput = document.getElementById('credit-card-payment-date-input');
+            const creditCardClosingDateInput = document.getElementById('credit-card-closing-date-input');
+            const deleteCreditCardBtn = document.getElementById('delete-credit-card-btn');
+
+            editingCreditCardId = index;
+
+            if (index !== null && bankSettings.creditCards[index]) {
+                const card = bankSettings.creditCards[index];
+                creditCardModalTitle.textContent = 'クレジットカード編集';
+                creditCardNameInput.value = card.name;
+                creditCardPaymentDateInput.value = card.paymentDate;
+                creditCardClosingDateInput.value = card.closingDate;
+                deleteCreditCardBtn.classList.remove('hidden');
+            } else {
+                creditCardModalTitle.textContent = '新しいクレジットカードを追加';
+                creditCardNameInput.value = '';
+                creditCardPaymentDateInput.value = '';
+                creditCardClosingDateInput.value = '';
+                deleteCreditCardBtn.classList.add('hidden');
+            }
+            document.getElementById('credit-card-modal').classList.remove('hidden');
+        }
+
+        function closeCreditCardModal() {
+            document.getElementById('credit-card-modal').classList.add('hidden');
+            editingCreditCardId = null;
+        }
+
+        async function saveCreditCard() {
+            if (!userId) {
+                showMessageBox("ユーザー認証が完了していません。", 'error');
+                return;
+            }
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+
+            const name = document.getElementById('credit-card-name').value.trim();
+            const paymentDate = parseInt(document.getElementById('credit-card-payment-date-input').value);
+            const closingDate = parseInt(document.getElementById('credit-card-closing-date-input').value);
+
+            if (!name || isNaN(paymentDate) || isNaN(closingDate) || paymentDate < 1 || paymentDate > 31 || closingDate < 1 || closingDate > 31) {
+                showMessageBox("カード名、支払い日、締め日を正しく入力してください。", 'error');
+                return;
+            }
+
+            const newCard = { name, paymentDate, closingDate };
+
+            if (editingCreditCardId !== null) {
+                bankSettings.creditCards[editingCreditCardId] = newCard;
+                showMessageBox(`クレジットカード "${name}" を更新しました！`);
+            } else {
+                bankSettings.creditCards.push(newCard);
+                showMessageBox(`クレジットカード "${name}" を追加しました！`);
+            }
+
+            try {
+                await window.setDoc(bankSettingsRef, { creditCards: bankSettings.creditCards }, { merge: true });
+                closeCreditCardModal();
+                renderCreditCards();
+                populatePaymentMethodDropdown(); // Update dropdown
+            } catch (e) {
+                console.error("Error saving credit card:", e);
+                showMessageBox("クレジットカードの保存に失敗しました。", 'error');
+            }
+        }
+
+        async function deleteCreditCard() {
+            if (editingCreditCardId === null || !userId) {
+                showMessageBox("削除するクレジットカードが選択されていません。", 'error');
+                return;
+            }
+
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+
+            const cardName = bankSettings.creditCards[editingCreditCardId].name;
+            bankSettings.creditCards.splice(editingCreditCardId, 1);
+
+            try {
+                await window.setDoc(bankSettingsRef, { creditCards: bankSettings.creditCards }, { merge: true });
+                showMessageBox(`クレジットカード "${cardName}" を削除しました！`);
+                closeCreditCardModal();
+                renderCreditCards();
+                populatePaymentMethodDropdown(); // Update dropdown
+            } catch (e) {
+                console.error("Error deleting credit card:", e);
+                showMessageBox("クレジットカードの削除に失敗しました。", 'error');
+            }
+        }
+
+        // --- Loan Management ---
+        function renderLoans() {
+            const loanListContainer = document.getElementById('loan-list');
+            loanListContainer.innerHTML = '';
+
+            if (bankSettings.loans.length === 0) {
+                const noLoansMessage = document.createElement('p');
+                noLoansMessage.classList.add('text-center', 'text-gray-500');
+                noLoansMessage.id = 'no-loans-message';
+                noLoansMessage.textContent = 'ローンがありません。';
+                loanListContainer.appendChild(noLoansMessage);
+                return;
+            } else {
+                const noLoansMessage = document.getElementById('no-loans-message');
+                if (noLoansMessage) noLoansMessage.remove();
+            }
+
+            bankSettings.loans.forEach((loan, index) => {
+                const loanItem = document.createElement('div');
+                loanItem.classList.add('bg-gray-50', 'p-4', 'rounded-lg', 'shadow-sm', 'flex', 'justify-between', 'items-center');
+                loanItem.innerHTML = `
+                    <div>
+                        <p class="font-semibold text-gray-800">${loan.name}</p>
+                        <p class="text-sm text-gray-600">${loan.amount.toLocaleString()} 円 / 支払い日: ${loan.paymentDate}日 / 残り: ${loan.remainingPayments}回</p>
+                    </div>
+                    <button class="text-blue-500 hover:text-blue-700 text-sm" data-index="${index}">編集</button>
+                `;
+                loanListContainer.appendChild(loanItem);
+
+                loanItem.querySelector('button').addEventListener('click', (event) => {
+                    const indexToEdit = parseInt(event.target.dataset.index);
+                    openLoanModal(indexToEdit);
+                });
+            });
+        }
+
+        function openLoanModal(index = null) {
+            const loanModalTitle = document.getElementById('loan-modal-title');
+            const loanNameInput = document.getElementById('loan-name');
+            const loanAmountInput = document.getElementById('loan-amount');
+            const loanPaymentDateInput = document.getElementById('loan-payment-date');
+            const loanRemainingPaymentsInput = document.getElementById('loan-remaining-payments');
+            const deleteLoanBtn = document.getElementById('delete-loan-btn');
+
+            editingLoanId = index;
+
+            if (index !== null && bankSettings.loans[index]) {
+                const loan = bankSettings.loans[index];
+                loanModalTitle.textContent = 'ローン編集';
+                loanNameInput.value = loan.name;
+                loanAmountInput.value = loan.amount;
+                loanPaymentDateInput.value = loan.paymentDate;
+                loanRemainingPaymentsInput.value = loan.remainingPayments;
+                deleteLoanBtn.classList.remove('hidden');
+            } else {
+                loanModalTitle.textContent = '新しいローンを追加';
+                loanNameInput.value = '';
+                loanAmountInput.value = '';
+                loanPaymentDateInput.value = '';
+                loanRemainingPaymentsInput.value = '';
+                deleteLoanBtn.classList.add('hidden');
+            }
+            document.getElementById('loan-modal').classList.remove('hidden');
+        }
+
+        function closeLoanModal() {
+            document.getElementById('loan-modal').classList.add('hidden');
+            editingLoanId = null;
+        }
+
+        async function saveLoan() {
+            if (!userId) {
+                showMessageBox("ユーザー認証が完了していません。", 'error');
+                return;
+            }
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+
+            const name = document.getElementById('loan-name').value.trim();
+            const amount = parseInt(document.getElementById('loan-amount').value);
+            const paymentDate = parseInt(document.getElementById('loan-payment-date').value);
+            const remainingPayments = parseInt(document.getElementById('loan-remaining-payments').value);
+
+            if (!name || isNaN(amount) || amount <= 0 || isNaN(paymentDate) || paymentDate < 1 || paymentDate > 31 || isNaN(remainingPayments) || remainingPayments < 0) {
+                showMessageBox("ローン名、金額、支払い日、残り回数を正しく入力してください。", 'error');
+                return;
+            }
+
+            const newLoan = { name, amount, paymentDate, remainingPayments };
+
+            if (editingLoanId !== null) {
+                bankSettings.loans[editingLoanId] = newLoan;
+                showMessageBox(`ローン "${name}" を更新しました！`);
+            } else {
+                bankSettings.loans.push(newLoan);
+                showMessageBox(`ローン "${name}" を追加しました！`);
+            }
+
+            try {
+                await window.setDoc(bankSettingsRef, { loans: bankSettings.loans }, { merge: true });
+                closeLoanModal();
+                renderLoans();
+                renderBankGraph(currentGraphDisplayMonth.getFullYear(), currentGraphDisplayMonth.getMonth()); // Re-render graph after loan changes
+            } catch (e) {
+                console.error("Error saving loan:", e);
+                showMessageBox("ローンの保存に失敗しました。", 'error');
+            }
+        }
+
+        async function deleteLoan() {
+            if (editingLoanId === null || !userId) {
+                showMessageBox("削除するローンが選択されていません。", 'error');
+                return;
+            }
+
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+
+            const loanName = bankSettings.loans[editingLoanId].name;
+            bankSettings.loans.splice(editingLoanId, 1);
+
+            try {
+                await window.setDoc(bankSettingsRef, { loans: bankSettings.loans }, { merge: true });
+                showMessageBox(`ローン "${loanName}" を削除しました！`);
+                closeLoanModal();
+                renderLoans();
+                renderBankGraph(currentGraphDisplayMonth.getFullYear(), currentGraphDisplayMonth.getMonth()); // Re-render graph after loan changes
+            } catch (e) {
+                console.error("Error deleting loan:", e);
+                showMessageBox("ローンの削除に失敗しました。", 'error');
+            }
+        }
+
+        // --- Payment Method Dropdown ---
+        function populatePaymentMethodDropdown() {
+            const selectElement = document.getElementById('expense-payment-method');
+            if (!selectElement) return; // Guard clause in case element is not yet in DOM
+
+            selectElement.innerHTML = ''; // Clear existing options
+
+            // Add Cash option first
+            let option = document.createElement('option');
+            option.value = 'cash';
+            option.textContent = '現金';
+            selectElement.appendChild(option);
+
+            // Add Debit Cards
+            bankSettings.debitCards.forEach(card => {
+                option = document.createElement('option');
+                option.value = `debit-${card.name}`;
+                option.textContent = `デビットカード: ${card.name}`;
+                selectElement.appendChild(option);
+            });
+
+            // Add Credit Cards
+            bankSettings.creditCards.forEach(card => {
+                option = document.createElement('option');
+                option.value = `credit-${card.name}`;
+                option.textContent = `クレジットカード: ${card.name}`;
+                selectElement.appendChild(option);
+            });
+        }
+
+
+        // --- Bank Balance Graph ---
+        let chartCanvas;
+        let chartCtx;
+        let dailyBalancesData = [];
+
+        function renderBankGraph(year, month) {
+            const currentGraphMonthYearElement = document.getElementById('current-graph-month-year');
+            if (currentGraphMonthYearElement) {
+                currentGraphMonthYearElement.textContent = new Date(year, month).toLocaleString('ja-JP', { month: 'long', year: 'numeric' });
+            } else {
+                console.warn("current-graph-month-year element not found. Cannot render graph title.");
+                return;
+            }
+
+            chartCanvas = document.getElementById('bank-balance-chart');
+            if (!chartCanvas) {
+                console.warn("Bank balance chart canvas not found.");
+                return;
+            }
+            chartCtx = chartCanvas.getContext('2d');
+
+            const rect = chartCanvas.getBoundingClientRect();
+            chartCanvas.width = rect.width;
+            chartCanvas.height = rect.height;
+
+            const width = chartCanvas.width;
+            const height = chartCtx.canvas.height;
+            chartCtx.clearRect(0, 0, width, height);
+
+            const numDaysInGraphMonth = new Date(year, month + 1, 0).getDate();
+
+            // Normalize today's date to start of day
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            // Normalize the first day of the graph month to start of day
+            const graphMonthStartDate = new Date(year, month, 1);
+            graphMonthStartDate.setHours(0, 0, 0, 0);
+
+            dailyBalancesData = [];
+
+            // --- Step 1: Calculate the balance at the beginning of the graph month ---
+            // This is the current actual balance, adjusted backwards for all transactions
+            // that occurred between the graph month's start and today.
+            let balanceAtGraphMonthStart = bankSettings.bankBalance;
+
+            // Iterate backwards from 'today' to 'graphMonthStartDate' (inclusive)
+            // If today is earlier than graphMonthStartDate, this loop will not run.
+            const dateIterator = new Date(today);
+            while (dateIterator >= graphMonthStartDate) {
+                const dateStr = dateIterator.toISOString().split('T')[0];
+
+                // 1. Add back cash/debit expenses that occurred on this date
+                expenses.filter(e => {
+                    const expDate = new Date(e.date);
+                    expDate.setHours(0,0,0,0);
+                    return expDate.toISOString().split('T')[0] === dateStr && (e.paymentMethodType === 'cash' || e.paymentMethodType === 'debit');
+                }).forEach(exp => {
+                    balanceAtGraphMonthStart += exp.amount;
+                });
+
+                // 2. Add back loan payments that occurred on this date
+                bankSettings.loans.forEach(loan => {
+                    // For historical context in the graph, we assume recurring loan payments occurred
+                    // if the payment date matches the current `dateIterator`'s day.
+                    if (loan.paymentDate === dateIterator.getDate()) {
+                        balanceAtGraphMonthStart += loan.amount;
+                    }
+                });
+
+                // 3. Add back credit card deductions that occurred on this date
+                bankSettings.creditCards.forEach(card => {
+                    if (card.paymentDate === dateIterator.getDate()) {
+                        const totalCreditCardAmountForCycle = calculateCreditCardCycleTotal(card, dateIterator.getFullYear(), dateIterator.getMonth());
+                        balanceAtGraphMonthStart += totalCreditCardAmountForCycle;
+                    }
+                });
+
+                // Move to the previous day
+                dateIterator.setDate(dateIterator.getDate() - 1);
+            }
+
+            // --- Step 2: Project balance forward for each day in the graph month ---
+            let runningBalanceProjection = balanceAtGraphMonthStart;
+
+            for (let day = 1; day <= numDaysInGraphMonth; day++) {
+                const currentDateInGraph = new Date(year, month, day);
+                currentDateInGraph.setHours(0,0,0,0); // Normalize to start of day
+                const dateStr = currentDateInGraph.toISOString().split('T')[0];
+                let dayExpenses = [];
+                let dayLoans = [];
+                let dayCreditCardDeductions = [];
+
+                // Deduct cash and debit expenses for the current day
+                expenses.filter(e => {
+                    const expenseDate = new Date(e.date);
+                    expenseDate.setHours(0,0,0,0);
+                    return expenseDate.toISOString().split('T')[0] === dateStr && (e.paymentMethodType === 'cash' || e.paymentMethodType === 'debit');
+                }).forEach(expense => {
+                    runningBalanceProjection -= expense.amount;
+                    dayExpenses.push(expense);
+                });
+
+                // Deduct loan payments for this day
+                bankSettings.loans.forEach(loan => {
+                    if (loan.paymentDate === day) {
+                        runningBalanceProjection -= loan.amount;
+                        dayLoans.push(loan);
+                    }
+                });
+
+                // Deduct credit card payments for this day
+                bankSettings.creditCards.forEach(card => {
+                    if (card.paymentDate === day) {
+                        const totalCreditCardAmountForCycle = calculateCreditCardCycleTotal(card, year, month);
+                        if (totalCreditCardAmountForCycle > 0) {
+                            runningBalanceProjection -= totalCreditCardAmountForCycle;
+                            dayCreditCardDeductions.push({ card: card.name, amount: totalCreditCardAmountForCycle });
+                        }
+                    }
+                });
+
+                dailyBalancesData.push({
+                    date: currentDateInGraph,
+                    balance: runningBalanceProjection,
+                    expenses: dayExpenses,
+                    loans: dayLoans,
+                    creditCardDeductions: dayCreditCardDeductions
+                });
+            }
+
+            // Helper function to calculate credit card expenses for a given cycle
+            function calculateCreditCardCycleTotal(card, paymentYear, paymentMonth) {
+                let actualCycleEndDate;
+                let actualCycleStartDate;
+
+                if (card.paymentDate <= card.closingDate) {
+                    // Payment on 'paymentYear, paymentMonth, card.paymentDate' covers cycle ending in PREVIOUS month
+                    actualCycleEndDate = new Date(paymentYear, paymentMonth - 1, card.closingDate);
+                    actualCycleStartDate = new Date(actualCycleEndDate.getFullYear(), actualCycleEndDate.getMonth(), actualCycleEndDate.getDate() + 1);
+                    actualCycleStartDate.setMonth(actualCycleStartDate.getMonth() - 1); // Go back one more month for start of cycle
+                } else {
+                    // Payment on 'paymentYear, paymentMonth, card.paymentDate' covers cycle ending in SAME month
+                    actualCycleEndDate = new Date(paymentYear, paymentMonth, card.closingDate);
+                    actualCycleStartDate = new Date(actualCycleEndDate.getFullYear(), actualCycleEndDate.getMonth(), actualCycleEndDate.getDate() + 1);
+                    actualCycleStartDate.setMonth(actualCycleStartDate.getMonth() - 1); // Go back one month for start of cycle
+                }
+
+                actualCycleStartDate.setHours(0, 0, 0, 0);
+                actualCycleEndDate.setHours(23, 59, 59, 999);
+
+                let total = 0;
+                expenses.filter(e => {
+                    const eDate = new Date(e.date);
+                    eDate.setHours(0, 0, 0, 0);
+                    return e.paymentMethodType === 'credit' &&
+                           e.paymentMethodName === card.name &&
+                           eDate >= actualCycleStartDate && eDate <= actualCycleEndDate;
+                }).forEach(e => {
+                    total += e.amount;
+                });
+                return total;
+            }
+
+            // Find min/max balance for scaling
+            const allBalances = dailyBalancesData.map(d => d.balance);
+            const minBalance = allBalances.length > 0 ? Math.min(...allBalances, 0) : 0;
+            const maxBalance = allBalances.length > 0 ? Math.max(...allBalances, balanceAtGraphMonthStart) : balanceAtGraphMonthStart;
+
+            const padding = 30;
+            const chartWidth = width - 2 * padding;
+            const chartHeight = height - 2 * padding;
+
+            // Draw Y-axis (balance)
+            const yAxisStart = padding;
+            const yAxisEnd = height - padding;
+            const yAxisRange = maxBalance - minBalance;
+
+            chartCtx.beginPath();
+            chartCtx.strokeStyle = '#ccc';
+            chartCtx.lineWidth = 1;
+            chartCtx.moveTo(padding, yAxisStart);
+            chartCtx.lineTo(padding, yAxisEnd);
+            chartCtx.stroke();
+
+            // Y-axis labels
+            chartCtx.fillStyle = '#555';
+            chartCtx.font = '10px Inter';
+            chartCtx.textAlign = 'right';
+            chartCtx.textBaseline = 'middle';
+
+            const numYLabels = 5;
+            for (let i = 0; i <= numYLabels; i++) {
+                const yValue = minBalance + (yAxisRange / numYLabels) * i;
+                const yPos = yAxisEnd - (yValue - minBalance) / yAxisRange * chartHeight;
+                chartCtx.fillText(Math.round(yValue).toLocaleString(), padding - 5, yPos);
+                chartCtx.beginPath();
+                chartCtx.moveTo(padding, yPos);
+                chartCtx.lineTo(padding + chartWidth, yPos);
+                chartCtx.strokeStyle = '#eee';
+                chartCtx.stroke();
+            }
+
+            // Draw X-axis (dates)
+            chartCtx.beginPath();
+            chartCtx.strokeStyle = '#ccc';
+            chartCtx.moveTo(padding, yAxisEnd);
+            chartCtx.lineTo(width - padding, yAxisEnd);
+            chartCtx.stroke();
+
+            // Plot data points
+            if (dailyBalancesData.length > 0) {
+                chartCtx.beginPath();
+                chartCtx.strokeStyle = '#3b82f6';
+                chartCtx.lineWidth = 2;
+                chartCtx.fillStyle = '#3b82f6';
+
+                const pointRadius = 3;
+                const xStep = numDaysInGraphMonth > 1 ? chartWidth / (numDaysInGraphMonth - 1) : 0;
+
+                dailyBalancesData.forEach((data, index) => {
+                    const xPos = padding + index * xStep;
+                    const yPos = yAxisEnd - (data.balance - minBalance) / yAxisRange * chartHeight;
+
+                    if (index === 0) {
+                        chartCtx.moveTo(xPos, yPos);
+                    } else {
+                        chartCtx.lineTo(xPos, yPos);
+                    }
+                    chartCtx.arc(xPos, yPos, pointRadius, 0, Math.PI * 2, false);
+                    chartCtx.fill();
+                });
+                chartCtx.stroke();
+            }
+
+
+            // X-axis labels (dates)
+            chartCtx.fillStyle = '#555';
+            chartCtx.font = '10px Inter';
+            chartCtx.textAlign = 'center';
+            chartCtx.textBaseline = 'top';
+
+            // xStep might not be defined if numDaysInGraphMonth is 0 or 1, or graphWidth is 0
+            const calculatedXStep = numDaysInGraphMonth > 1 ? chartWidth / (numDaysInGraphMonth - 1) : 0;
+
+            for (let i = 0; i < numDaysInGraphMonth; i++) {
+                if (numDaysInGraphMonth <= 10 || i % 5 === 0 || i === numDaysInGraphMonth - 1) {
+                    const xPos = padding + i * calculatedXStep; // Use calculatedXStep
+                    chartCtx.fillText(`${i + 1}日`, xPos, yAxisEnd + 5);
+                }
+            }
+
+            // Add click event listener for daily details
+            chartCanvas.onclick = (event) => {
+                const rect = chartCanvas.getBoundingClientRect();
+                const mouseX = event.clientX - rect.left;
+                const mouseY = event.clientY - rect.top;
+
+                // Make sure calculatedXStep is not zero to avoid division by zero
+                const clickedIndex = (calculatedXStep !== 0) ? Math.round((mouseX - padding) / calculatedXStep) : 0;
+
+                if (clickedIndex >= 0 && clickedIndex < dailyBalancesData.length) {
+                    const selectedDayData = dailyBalancesData[clickedIndex];
+                    renderSelectedDayDetails(selectedDayData);
+                }
+            };
+
+            // Add mousemove for tooltip
+            const chartTooltip = document.getElementById('chart-tooltip');
+            chartCanvas.onmousemove = (event) => {
+                const rect = chartCanvas.getBoundingClientRect();
+                const mouseX = event.clientX - rect.left;
+                const mouseY = event.clientY - rect.top;
+
+                const hoveredIndex = (calculatedXStep !== 0) ? Math.round((mouseX - padding) / calculatedXStep) : 0;
+
+                if (hoveredIndex >= 0 && hoveredIndex < dailyBalancesData.length) {
+                    const hoveredData = dailyBalancesData[hoveredIndex];
+                    const date = hoveredData.date.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' });
+                    const balance = hoveredData.balance.toLocaleString();
+                    chartTooltip.innerHTML = `<strong>${date}</strong><br>残高: ${balance} 円`;
+                    chartTooltip.style.left = `${event.clientX + 10}px`;
+                    chartTooltip.style.top = `${event.clientY + 10}px`;
+                    chartTooltip.classList.remove('hidden');
+                } else {
+                    chartTooltip.classList.add('hidden');
+                }
+            };
+
+            chartCanvas.onmouseout = () => {
+                chartTooltip.classList.add('hidden');
+            };
+        }
+
+        // --- Calendar and Shift Management ---
+        let shifts = [];
+
+        function renderCalendar(year, month) {
+            const calendarDays = document.getElementById('calendar-days');
+            calendarDays.innerHTML = '';
+
+            const monthName = new Date(year, month).toLocaleString('ja-JP', { month: 'long', year: 'numeric' });
+            document.getElementById('current-month-year').textContent = monthName;
+
+            const firstDayOfMonth = new Date(year, month, 1);
+            const lastDayOfMonth = new Date(year, month + 1, 0);
+            const numDays = lastDayOfMonth.getDate();
+            const startDayOfWeek = firstDayOfMonth.getDay();
+
+            for (let i = 0; i < startDayOfWeek; i++) {
+                const emptyCell = document.createElement('div');
+                emptyCell.classList.add('calendar-day', 'bg-gray-100', 'text-gray-400');
+                calendarDays.appendChild(emptyCell);
+            }
+
+            for (let day = 1; day <= numDays; day++) {
+                const date = new Date(year, month, day);
+                const dayCell = document.createElement('div');
+                dayCell.classList.add('calendar-day', 'p-2', 'flex', 'flex-col', 'items-center', 'justify-between', 'border', 'border-gray-200', 'rounded-md', 'cursor-pointer', 'hover:bg-blue-50', 'transition-colors', 'duration-200', 'relative');
+                dayCell.dataset.date = date.toISOString().split('T')[0];
+
+                const dayNumSpan = document.createElement('span');
+                dayNumSpan.classList.add('font-bold', 'text-lg');
+                dayNumSpan.textContent = day;
+                dayCell.appendChild(dayNumSpan);
+
+                const shiftInfoDiv = document.createElement('div');
+                shiftInfoDiv.classList.add('text-xs', 'text-gray-600', 'mt-1', 'w-full', 'text-center');
+                shiftInfoDiv.id = `shift-info-${dayCell.dataset.date}`;
+                dayCell.appendChild(shiftInfoDiv);
+
+                dayCell.addEventListener('click', () => openShiftModal(dayCell.dataset.date));
+                calendarDays.appendChild(dayCell);
+            }
+            fetchShiftsForMonth(year, month);
+        }
+
+        async function fetchShiftsForMonth(year, month) {
+            if (!userId) return;
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const shiftsColRef = window.collection(db, `artifacts/${appId}/users/${userId}/shifts`);
+
+            const startOfMonth = new Date(year, month, 1);
+            const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59, 999);
+
+            window.onSnapshot(shiftsColRef, (snapshot) => {
+                shifts = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const shiftDate = data.date.toDate();
+                    const startTime = data.startTime && data.startTime.toDate ? data.startTime.toDate() : new Date(data.startTime);
+                    const endTime = data.endTime && data.endTime.toDate ? data.endTime.toDate() : new Date(data.endTime);
+
+                    // Filter shifts to only include the currently displayed month
+                    // Also filter for shifts that actually fall within the current month/year being rendered
+                    if (shiftDate.getFullYear() === year && shiftDate.getMonth() === month) {
+                        shifts.push({ id: doc.id, ...data, date: shiftDate, startTime: startTime, endTime: endTime });
+                    }
+                });
+                updateCalendarShiftDisplay();
+                renderMyShifts();
+                renderSalaryCalculation();
+            }, (error) => {
+                console.error("Error fetching shifts:", error);
+                showMessageBox("シフトの読み込みに失敗しました。", 'error');
+            });
+        }
+
+        function updateCalendarShiftDisplay() {
+            // Clear existing shift info from all calendar days
+            document.querySelectorAll('[id^="shift-info-"]').forEach(div => div.textContent = '');
+
+            shifts.forEach(shift => {
+                const dateStr = shift.date.toISOString().split('T')[0];
+                const shiftInfoDiv = document.getElementById(`shift-info-${dateStr}`);
+                if (shiftInfoDiv) {
+                    const startTime = shift.startTime instanceof Date ? shift.startTime : new Date(shift.startTime.seconds * 1000);
+                    const endTime = shift.endTime instanceof Date ? shift.endTime : new Date(shift.endTime.seconds * 1000);
+
+                    const formattedStartTime = startTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+                    const formattedEndTime = endTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+                    shiftInfoDiv.textContent = `${formattedStartTime} - ${formattedEndTime}`;
+                }
+            });
+        }
+
+        let editingShiftId = null;
+        let currentShiftDate = null;
+
+        function openShiftModal(dateStr) {
+            currentShiftDate = dateStr;
+            const shiftDate = new Date(dateStr);
+            document.getElementById('shift-modal-title').textContent = `${shiftDate.getMonth() + 1}月${shiftDate.getDate()}日のシフト`;
+
+            const existingShift = shifts.find(s => s.date.toISOString().split('T')[0] === dateStr);
+
+            if (existingShift) {
+                editingShiftId = existingShift.id;
+                const startTime = existingShift.startTime instanceof Date ? existingShift.startTime : new Date(existingShift.startTime.seconds * 1000);
+                const endTime = existingShift.endTime instanceof Date ? existingShift.endTime : new Date(existingShift.endTime.seconds * 1000);
+
+                document.getElementById('shift-start-time').value = startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                document.getElementById('shift-end-time').value = endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+                document.getElementById('shift-break-time').value = existingShift.breakTime || 0;
+                document.getElementById('shift-notes').value = existingShift.notes || '';
+                document.getElementById('delete-shift-btn').classList.remove('hidden');
+            } else {
+                editingShiftId = null;
+                document.getElementById('shift-start-time').value = '';
+                document.getElementById('shift-end-time').value = '';
+                document.getElementById('shift-break-time').value = 0;
+                document.getElementById('shift-notes').value = '';
+                document.getElementById('delete-shift-btn').classList.add('hidden');
+            }
+
+            document.getElementById('shift-modal').classList.remove('hidden');
+            renderShiftPresets();
+        }
+
+        function closeShiftModal() {
+            document.getElementById('shift-modal').classList.add('hidden');
+        }
+
+        async function saveShift() {
+            if (!userId || !currentShiftDate) {
+                showMessageBox("ユーザー認証または日付が選択されていません。", 'error');
+                return;
+            }
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const shiftsColRef = window.collection(db, `artifacts/${appId}/users/${userId}/shifts`);
+
+            const startTimeStr = document.getElementById('shift-start-time').value;
+            const endTimeStr = document.getElementById('shift-end-time').value;
+            const breakTime = parseInt(document.getElementById('shift-break-time').value) || 0;
+            const notes = document.getElementById('shift-notes').value;
+
+            if (!startTimeStr || !endTimeStr) {
+                showMessageBox("開始時間と終了時間を入力してください。", 'error');
+                return;
+            }
+
+            const shiftDate = new Date(currentShiftDate);
+            const startDateTime = new Date(`${currentShiftDate}T${startTimeStr}:00`);
+            const endDateTime = new Date(`${currentShiftDate}T${endTimeStr}:00`);
+
+            if (startDateTime >= endDateTime) {
+                showMessageBox("開始時間は終了時間より前に設定してください。", 'error');
+                return;
+            }
+
+            const shiftData = {
+                date: shiftDate,
+                startTime: startDateTime,
+                endTime: endDateTime,
+                breakTime: breakTime,
+                notes: notes,
+                userId: userId
+            };
+
+            try {
+                if (editingShiftId) {
+                    await window.setDoc(window.doc(db, `artifacts/${appId}/users/${userId}/shifts`, editingShiftId), shiftData);
+                    showMessageBox("シフトを更新しました！");
+                } else {
+                    await window.addDoc(shiftsColRef, shiftData);
+                    showMessageBox("シフトを追加しました！");
+                }
+                closeShiftModal();
+            } catch (e) {
+                console.error("Error saving shift:", e);
+                showMessageBox("シフトの保存に失敗しました。", 'error');
+            }
+        }
+
+        async function deleteShift() {
+            if (!userId || !editingShiftId) {
+                showMessageBox("削除するシフトが選択されていません。", 'error');
+                return;
+            }
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const shiftDocRef = window.doc(db, `artifacts/${appId}/users/${userId}/shifts`, editingShiftId);
+
+            try {
+                await window.deleteDoc(shiftDocRef);
+                showMessageBox("シフトを削除しました！");
+                closeShiftModal();
+                editingShiftId = null;
+            } catch (e) {
+                console.error("Error deleting shift:", e);
+                showMessageBox("シフトの削除に失敗しました。", 'error');
+            }
+        }
+
+        function prevMonth() {
+            currentMonth.setMonth(currentMonth.getMonth() - 1);
+            renderCalendar(currentMonth.getFullYear(), currentMonth.getMonth());
+        }
+
+        function nextMonth() {
+            currentMonth.setMonth(currentMonth.getMonth() + 1);
+            renderCalendar(currentMonth.getFullYear(), currentMonth.getMonth());
+        }
+
+        // --- My Shifts List ---
+        function renderMyShifts() {
+            const myShiftsList = document.getElementById('my-shifts-list');
+            myShiftsList.innerHTML = '';
+
+            // Filter shifts to only include the currently displayed month
+            const filteredShifts = shifts.filter(shift =>
+                shift.date.getMonth() === currentMonth.getMonth() &&
+                shift.date.getFullYear() === currentMonth.getFullYear()
+            );
+
+            if (filteredShifts.length === 0) {
+                myShiftsList.innerHTML = '<p class="text-center text-gray-500">今月のシフトはまだありません。</p>';
+                return;
+            }
+
+            const sortedShifts = [...filteredShifts].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+            sortedShifts.forEach(shift => {
+                const date = shift.date.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
+                const startTime = shift.startTime instanceof Date ? shift.startTime : new Date(shift.startTime.seconds * 1000);
+                const endTime = shift.endTime instanceof Date ? shift.endTime : new Date(shift.endTime.seconds * 1000);
+
+                const formattedStartTime = startTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+                const formattedEndTime = endTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+                const breakTime = shift.breakTime;
+                const notes = shift.notes ? ` (${shift.notes})` : '';
+
+                const listItem = document.createElement('li');
+                listItem.classList.add('bg-white', 'p-4', 'rounded-lg', 'shadow-sm', 'mb-2', 'flex', 'justify-between', 'items-center');
+                listItem.innerHTML = `
+                    <div>
+                        <p class="font-semibold text-gray-800">${date}</p>
+                        <p class="text-sm text-gray-600">${formattedStartTime} - ${formattedEndTime} (休憩: ${breakTime}分)${notes}</p>
+                    </div>
+                    <button class="text-blue-500 hover:text-blue-700 text-sm" onclick="openShiftModal('${shift.date.toISOString().split('T')[0]}')">編集</button>
+                `;
+                myShiftsList.appendChild(listItem);
+            });
+        }
+
+        // --- Salary Calculation Logic ---
+        function renderSalaryCalculation() {
+            const salaryResultDiv = document.getElementById('salary-result');
+            const earnedBar = document.getElementById('earned-bar');
+            const earnedAmountLabel = document.getElementById('earned-amount-label');
+            const totalEstimatedLabel = document.getElementById('total-estimated-label');
+
+            // Filter shifts for the current month/year being displayed
+            const currentMonthShifts = shifts.filter(shift =>
+                shift.date.getMonth() === currentMonth.getMonth() &&
+                shift.date.getFullYear() === currentMonth.getFullYear()
+            );
+
+            if (currentMonthShifts.length === 0) {
+                salaryResultDiv.innerHTML = '<p class="text-center text-gray-500">シフトが登録されていません。</p>';
+                earnedBar.style.width = '0%';
+                earnedAmountLabel.textContent = '0 円';
+                totalEstimatedLabel.textContent = '0 円';
+                return;
+            }
+
+            let totalWeekdayHours = 0;
+            let totalHolidayHours = 0;
+            let earnedWeekdayHours = 0;
+            let earnedHolidayHours = 0;
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            currentMonthShifts.forEach(shift => {
+                const start = shift.startTime instanceof Date ? shift.startTime : new Date(shift.startTime.seconds * 1000);
+                const end = shift.endTime instanceof Date ? shift.endTime : new Date(shift.endTime.seconds * 1000);
+                const breakMinutes = shift.breakTime || 0;
+
+                let durationMinutes = (end.getTime() - start.getTime()) / (1000 * 60);
+                durationMinutes -= breakMinutes;
+
+                const durationHours = durationMinutes / 60;
+
+                const dayOfWeek = shift.date.getDay();
+                const isHoliday = (dayOfWeek === 0 || dayOfWeek === 6);
+
+                if (isHoliday) {
+                    totalHolidayHours += durationHours;
+                } else {
+                    totalWeekdayHours += durationHours;
+                }
+
+                const shiftDateOnly = new Date(shift.date.getFullYear(), shift.date.getMonth(), shift.date.getDate());
+                if (shiftDateOnly <= today) {
+                    if (isHoliday) {
+                        earnedHolidayHours += durationHours;
+                    } else {
+                        earnedWeekdayHours += durationHours;
+                    }
+                }
+            });
+
+            const totalWeekdaySalary = totalWeekdayHours * currentSalarySettings.weekdayWage;
+            const totalHolidaySalary = totalHolidayHours * currentSalarySettings.holidayWage;
+            const totalEstimatedSalary = totalWeekdaySalary + totalHolidaySalary + currentSalarySettings.transportationCost;
+
+            const earnedWeekdaySalary = earnedWeekdayHours * currentSalarySettings.weekdayWage;
+            const earnedHolidaySalary = earnedHolidayHours * currentSalarySettings.holidayWage;
+            const earnedSoFarSalary = earnedWeekdaySalary + earnedHolidaySalary;
+
+            let progressPercentage = 0;
+            if (totalEstimatedSalary > 0) {
+                progressPercentage = (earnedSoFarSalary / totalEstimatedSalary) * 100;
+                if (progressPercentage > 100) progressPercentage = 100;
+            }
+            earnedBar.style.width = `${progressPercentage}%`;
+            earnedAmountLabel.textContent = `${earnedSoFarSalary.toLocaleString()} 円`;
+            totalEstimatedLabel.textContent = `${totalEstimatedSalary.toLocaleString()} 円`;
+
+            if (progressPercentage > 50) {
+                 earnedAmountLabel.classList.remove('text-gray-800');
+                 earnedAmountLabel.classList.add('text-white');
+            } else {
+                 earnedAmountLabel.classList.remove('text-white');
+                 earnedAmountLabel.classList.add('text-gray-800');
+            }
+            totalEstimatedLabel.classList.remove('text-white');
+            totalEstimatedLabel.classList.add('text-gray-800');
+
+
+            salaryResultDiv.innerHTML = `
+                <div class="space-y-4">
+                    <div class="bg-blue-50 p-4 rounded-lg shadow-sm">
+                        <p class="text-lg font-semibold text-blue-800">今月の合計見込み給料</p>
+                        <p class="text-3xl font-bold text-blue-700 mt-2">${totalEstimatedSalary.toLocaleString()} 円</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 text-gray-700">
+                        <div class="bg-white p-3 rounded-lg shadow-sm">
+                            <p class="text-sm">平日勤務時間</p>
+                            <p class="font-medium">${totalWeekdayHours.toFixed(1)} 時間</p>
+                            <p class="text-xs text-gray-500">${totalWeekdaySalary.toLocaleString()} 円</p>
+                        </div>
+                        <div class="bg-white p-3 rounded-lg shadow-sm">
+                            <p class="text-sm">休日勤務時間</p>
+                            <p class="font-medium">${totalHolidayHours.toFixed(1)} 時間</p>
+                            <p class="text-xs text-gray-500">${totalHolidaySalary.toLocaleString()} 円</p>
+                        </div>
+                        <div class="bg-white p-3 rounded-lg shadow-sm col-span-2">
+                            <p class="text-sm">交通費</p>
+                            <p class="font-medium">${currentSalarySettings.transportationCost.toLocaleString()} 円</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- Expense Management ---
+        let expenses = [];
+
+        async function fetchExpenses() {
+            if (!userId) return;
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const expensesColRef = window.collection(db, `artifacts/${appId}/users/${userId}/expenses`);
+
+            window.onSnapshot(expensesColRef, (snapshot) => {
+                expenses = [];
+                snapshot.forEach(doc => {
+                    expenses.push({ id: doc.id, ...doc.data(), date: doc.data().date.toDate() });
+                });
+                renderExpenses();
+                renderSummary();
+                // If summary page is active, re-render graph as expenses affect it
+                // Only render if the summary page is currently visible to avoid unnecessary renders
+                if (document.getElementById('summary-display-page').classList.contains('hidden') === false) {
+                    renderBankGraph(currentGraphDisplayMonth.getFullYear(), currentGraphDisplayMonth.getMonth());
+                }
+            }, (error) => {
+                console.error("Error fetching expenses:", error);
+                showMessageBox("支出の読み込みに失敗しました。", 'error');
+            });
+        }
+
+        async function saveExpense() {
+            if (!userId) {
+                showMessageBox("ユーザー認証が完了していません。", 'error');
+                return;
+            }
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const expensesColRef = window.collection(db, `artifacts/${appId}/users/${userId}/expenses`);
+
+            const expenseDateStr = document.getElementById('expense-date').value;
+            const expenseCategory = document.getElementById('expense-category').value;
+            const expenseAmount = parseInt(document.getElementById('expense-amount').value);
+            const expenseNotes = document.getElementById('expense-notes').value;
+            const paymentMethodValue = document.getElementById('expense-payment-method').value;
+
+            if (!expenseDateStr || !expenseCategory || isNaN(expenseAmount) || expenseAmount <= 0) {
+                showMessageBox("日付、項目、金額を正しく入力してください。", 'error');
+                return;
+            }
+
+            let paymentMethodType = 'cash';
+            let paymentMethodName = '現金';
+
+            if (paymentMethodValue.startsWith('debit-')) {
+                paymentMethodType = 'debit';
+                paymentMethodName = paymentMethodValue.substring(6); // Remove "debit-" prefix
+            } else if (paymentMethodValue.startsWith('credit-')) {
+                paymentMethodType = 'credit';
+                paymentMethodName = paymentMethodValue.substring(7); // Remove "credit-" prefix
+            }
+
+            const expenseData = {
+                date: new Date(expenseDateStr),
+                category: expenseCategory,
+                amount: expenseAmount,
+                notes: expenseNotes,
+                paymentMethodType: paymentMethodType, // NEW
+                paymentMethodName: paymentMethodName, // NEW
+                userId: userId
+            };
+
+            try {
+                await window.addDoc(expensesColRef, expenseData);
+                showMessageBox("支出を記録しました！");
+                document.getElementById('expense-date').value = new Date().toISOString().split('T')[0];
+                document.getElementById('expense-category').value = '食費';
+                document.getElementById('expense-amount').value = '';
+                document.getElementById('expense-notes').value = '';
+                document.getElementById('expense-payment-method').value = 'cash'; // Reset dropdown
+            } catch (e) {
+                console.error("Error saving expense:", e);
+                showMessageBox("支出の記録に失敗しました。", 'error');
+            }
+        }
+
+        function renderExpenses() {
+            const expenseList = document.getElementById('expense-list');
+            expenseList.innerHTML = '';
+
+            if (expenses.length === 0) {
+                expenseList.innerHTML = '<p class="text-center text-gray-500">まだ支出の記録がありません。</p>';
+                return;
+            }
+
+            const sortedExpenses = [...expenses].sort((a, b) => b.date.getTime() - a.date.getTime());
+
+            let totalMonthlyExpense = 0;
+            const currentDisplayMonth = currentMonth.getMonth();
+            const currentDisplayYear = currentMonth.getFullYear();
+
+            sortedExpenses.forEach(expense => {
+                if (expense.date.getMonth() === currentDisplayMonth && expense.date.getFullYear() === currentDisplayYear) {
+                    totalMonthlyExpense += expense.amount;
+                }
+
+                const date = expense.date.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
+                const paymentMethodDisplay = expense.paymentMethodType === 'cash' ? '現金' :
+                                             expense.paymentMethodType === 'debit' ? `デビットカード: ${expense.paymentMethodName}` :
+                                             expense.paymentMethodType === 'credit' ? `クレジットカード: ${expense.paymentMethodName}` : '';
+                const listItem = document.createElement('li');
+                listItem.classList.add('bg-white', 'p-4', 'rounded-lg', 'shadow-sm', 'mb-2', 'flex', 'justify-between', 'items-center');
+                listItem.innerHTML = `
+                    <div>
+                        <p class="font-semibold text-gray-800">${date} - ${expense.category}</p>
+                        <p class="text-sm text-gray-600">${paymentMethodDisplay} - ${expense.notes}</p>
+                    </div>
+                    <p class="font-bold text-red-600">${expense.amount.toLocaleString()} 円</p>
+                `;
+                expenseList.appendChild(listItem);
+            });
+
+            document.getElementById('total-monthly-expense').textContent = totalMonthlyExpense.toLocaleString();
+        }
+
+        // --- Summary Display ---
+        function renderSummary() {
+            const summaryContent = document.getElementById('summary-content');
+            summaryContent.innerHTML = '';
+
+            const currentDisplayMonth = currentGraphDisplayMonth.getMonth(); // Use graph month for summary
+            const currentDisplayYear = currentGraphDisplayMonth.getFullYear(); // Use graph month for summary
+
+            let totalWeekdayHours = 0;
+            let totalHolidayHours = 0;
+            shifts.forEach(shift => {
+                if (shift.date.getMonth() === currentDisplayMonth && shift.date.getFullYear() === currentDisplayYear) {
+                    const start = shift.startTime instanceof Date ? shift.startTime : new Date(shift.startTime.seconds * 1000);
+                    const end = shift.endTime instanceof Date ? shift.endTime : new Date(shift.endTime.seconds * 1000);
+                    const breakMinutes = shift.breakTime || 0;
+
+                    let durationMinutes = (end.getTime() - start.getTime()) / (1000 * 60);
+                    durationMinutes -= breakMinutes;
+                    const durationHours = durationMinutes / 60;
+
+                    const dayOfWeek = shift.date.getDay();
+                    if (dayOfWeek === 0 || dayOfWeek === 6) {
+                        totalHolidayHours += durationHours;
+                    } else {
+                        totalWeekdayHours += durationHours;
+                    }
+                }
+            });
+            const totalSalary = (totalWeekdayHours * currentSalarySettings.weekdayWage) +
+                                (totalHolidayHours * currentSalarySettings.holidayWage) +
+                                currentSalarySettings.transportationCost;
+
+            let totalExpenses = 0;
+            expenses.forEach(expense => {
+                if (expense.date.getMonth() === currentDisplayMonth && expense.date.getFullYear() === currentDisplayYear) {
+                    totalExpenses += expense.amount;
+                }
+            });
+
+            const balance = totalSalary - totalExpenses;
+            const balanceColor = balance >= 0 ? 'text-green-600' : 'text-red-600';
+
+            summaryContent.innerHTML = `
+                <div class="bg-white p-6 rounded-lg shadow-md mb-4">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">${currentGraphDisplayMonth.getFullYear()}年${currentGraphDisplayMonth.getMonth() + 1}月のまとめ</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                        <div class="p-4 bg-blue-50 rounded-lg">
+                            <p class="text-sm text-gray-600">給料見込み</p>
+                            <p class="text-2xl font-bold text-blue-700">${totalSalary.toLocaleString()} 円</p>
+                        </div>
+                        <div class="p-4 bg-red-50 rounded-lg">
+                            <p class="text-sm text-gray-600">支出合計</p>
+                            <p class="text-2xl font-bold text-red-700">${totalExpenses.toLocaleString()} 円</p>
+                        </div>
+                        <div class="p-4 bg-green-50 rounded-lg">
+                            <p class="text-sm text-gray-600">収支</p>
+                            <p class="text-2xl font-bold ${balanceColor}">${balance.toLocaleString()} 円</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-lg shadow-md mb-4">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">シフト概要</h3>
+                    <ul class="list-disc list-inside text-gray-700">
+                        <li>平日勤務時間: <span class="font-semibold">${totalWeekdayHours.toFixed(1)} 時間</span></li>
+                        <li>休日勤務時間: <span class="font-semibold">${totalHolidayHours.toFixed(1)} 時間</span></li>
+                        <li>設定時給 (平日): <span class="font-semibold">${currentSalarySettings.weekdayWage.toLocaleString()} 円/時</span></li>
+                        <li>設定時給 (休日): <span class="font-semibold">${currentSalarySettings.holidayWage.toLocaleString()} 円/時</span></li>
+                        <li>交通費: <span class="font-semibold">${currentSalarySettings.transportationCost.toLocaleString()} 円</span></li>
+                    </ul>
+                </div>
+
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">支出内訳</h3>
+                    ${renderExpenseCategorySummary()}
+                </div>
+            `;
+            // Only render bank graph if its container exists
+            const bankChartCanvas = document.getElementById('bank-balance-chart');
+            if (bankChartCanvas) {
+                 renderBankGraph(currentGraphDisplayMonth.getFullYear(), currentGraphDisplayMonth.getMonth());
+            }
+        }
+
+        function renderExpenseCategorySummary() {
+            const categoryTotals = {};
+            const currentDisplayMonth = currentGraphDisplayMonth.getMonth(); // Use graph month for summary
+            const currentDisplayYear = currentGraphDisplayMonth.getFullYear(); // Use graph month for summary
+
+            expenses.forEach(expense => {
+                if (expense.date.getMonth() === currentDisplayMonth && expense.date.getFullYear() === currentDisplayYear) {
+                    if (!categoryTotals[expense.category]) {
+                        categoryTotals[expense.category] = 0;
+                    }
+                    categoryTotals[expense.category] += expense.amount;
+                }
+            });
+
+            if (Object.keys(categoryTotals).length === 0) {
+                return '<p class="text-center text-gray-500">今月の支出はまだありません。</p>';
+            }
+
+            let html = '<ul class="divide-y divide-gray-200">';
+            for (const category in categoryTotals) {
+                html += `
+                    <li class="py-2 flex justify-between items-center">
+                        <span class="font-medium text-gray-700">${category}</span>
+                        <span class="font-semibold text-gray-800">${categoryTotals[category].toLocaleString()} 円</span>
+                    </li>
+                `;
+            }
+            html += '</ul>';
+            return html;
+        }
+
+        function renderSelectedDayDetails(data) {
+            const detailsContainer = document.getElementById('selected-day-details');
+            if (!detailsContainer) return;
+
+            let html = `
+                <p class="text-lg font-semibold mb-2">${data.date.toLocaleDateString('ja-JP', { year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'long' })}</p>
+                <p class="text-xl font-bold text-blue-700 mb-4">残高: ${data.balance.toLocaleString()} 円</p>
+                <h5 class="font-semibold text-gray-800 mb-2">その日のイベント:</h5>
+                <ul class="list-disc list-inside text-gray-700 space-y-1">
+            `;
+
+            if (data.expenses.length > 0) {
+                data.expenses.forEach(exp => {
+                    const paymentMethod = exp.paymentMethodType === 'cash' ? '現金' :
+                                          exp.paymentMethodType === 'debit' ? `デビットカード: ${exp.paymentMethodName}` :
+                                          exp.paymentMethodType === 'credit' ? `クレジットカード: ${exp.paymentMethodName}` : '';
+                    html += `<li>支出: ${exp.category} - ${exp.amount.toLocaleString()} 円 (${paymentMethod})${exp.notes ? ` (${exp.notes})` : ''}</li>`;
+                });
+            }
+            if (data.loans.length > 0) {
+                data.loans.forEach(loan => {
+                    html += `<li>ローン支払い: ${loan.name} - ${loan.amount.toLocaleString()} 円</li>`;
+                });
+            }
+            if (data.creditCardDeductions.length > 0) {
+                data.creditCardDeductions.forEach(cc => {
+                    html += `<li>クレジットカード引き落とし: ${cc.card} - ${cc.amount.toLocaleString()} 円</li>`;
+                });
+            }
+
+            if (data.expenses.length === 0 && data.loans.length === 0 && data.creditCardDeductions.length === 0) {
+                html += `<li>この日は大きな動きはありませんでした。</li>`;
+            }
+
+            html += `</ul>`;
+            detailsContainer.innerHTML = html;
+        }
+
+        // --- Shift Presets Management ---
+
+        async function fetchShiftPresets() {
+            if (!userId) return;
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const presetsColRef = window.collection(db, `artifacts/${appId}/users/${userId}/shiftPresets`);
+
+            window.onSnapshot(presetsColRef, (snapshot) => {
+                shiftPresets = [];
+                snapshot.forEach(doc => {
+                    shiftPresets.push({ id: doc.id, ...doc.data() });
+                });
+                renderShiftPresets();
+            }, (error) => {
+                console.error("Error fetching shift presets:", error);
+                showMessageBox("プリセットの読み込みに失敗しました。", 'error');
+            });
+        }
+
+        function renderShiftPresets() {
+            const presetButtonsContainer = document.getElementById('preset-buttons-container');
+            presetButtonsContainer.innerHTML = '';
+
+            if (shiftPresets.length === 0) {
+                const noPresetsMessage = document.createElement('p');
+                noPresetsMessage.classList.add('text-sm', 'text-gray-500');
+                noPresetsMessage.id = 'no-presets-message';
+                noPresetsMessage.textContent = 'プリセットがありません。';
+                presetButtonsContainer.appendChild(noPresetsMessage);
+                return;
+            } else {
+                const noPresetsMessage = document.getElementById('no-presets-message');
+                if (noPresetsMessage) noPresetsMessage.remove();
+            }
+
+            shiftPresets.forEach(preset => {
+                const presetButton = document.createElement('button');
+                presetButton.classList.add(
+                    'bg-blue-100', 'text-blue-800', 'py-2', 'px-3', 'rounded-full', 'text-sm', 'font-medium',
+                    'hover:bg-blue-200', 'transition-colors', 'duration-200', 'shadow-sm'
+                );
+                presetButton.textContent = preset.name;
+                presetButton.addEventListener('click', () => applyPreset(preset));
+                presetButtonsContainer.appendChild(presetButton);
+            });
+        }
+
+        function applyPreset(preset) {
+            document.getElementById('shift-start-time').value = preset.startTime;
+            document.getElementById('shift-end-time').value = preset.endTime;
+            document.getElementById('shift-break-time').value = preset.breakTime;
+            showMessageBox(`${preset.name} プリセットを適用しました。`);
+        }
+
+        function openPresetNameModal() {
+            document.getElementById('preset-name-input').value = '';
+            document.getElementById('preset-name-modal').classList.remove('hidden');
+        }
+
+        function closePresetNameModal() {
+            document.getElementById('preset-name-modal').classList.add('hidden');
+        }
+
+        async function saveShiftPreset() {
+            if (!userId) {
+                showMessageBox("ユーザー認証が完了していません。", 'error');
+                return;
+            }
+
+            const startTimeStr = document.getElementById('shift-start-time').value;
+            const endTimeStr = document.getElementById('shift-end-time').value;
+            const breakTime = parseInt(document.getElementById('shift-break-time').value) || 0;
+            const presetName = document.getElementById('preset-name-input').value;
+
+            if (!startTimeStr || !endTimeStr) {
+                showMessageBox("開始時間と終了時間を入力してからプリセットを追加してください。", 'error');
+                return;
+            }
+            if (!presetName || presetName.trim() === "") {
+                showMessageBox("プリセット名が入力されていません。", 'error');
+                return;
+            }
+
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const presetsColRef = window.collection(db, `artifacts/${appId}/users/${userId}/shiftPresets`);
+
+            try {
+                await window.addDoc(presetsColRef, {
+                    name: presetName.trim(),
+                    startTime: startTimeStr,
+                    endTime: endTimeStr,
+                    breakTime: breakTime,
+                    userId: userId
+                });
+                showMessageBox(`プリセット "${presetName}" を追加しました！`);
+                closePresetNameModal();
+            } catch (e) {
+                console.error("Error adding preset:", e);
+                showMessageBox("プリセットの追加に失敗しました。", 'error');
+            }
+        }
+
+
+        // Event Listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("DOMContentLoaded event fired.");
+            initFirebase();
+
+            // Main navigation buttons (Home page)
+            const showShiftCalendarBtn = document.getElementById('show-shift-calendar');
+            if (showShiftCalendarBtn) {
+                showShiftCalendarBtn.addEventListener('click', () => {
+                    console.log("Show Shift Calendar button clicked.");
+                    showPage('shift-calendar-page');
+                });
+            } else {
+                console.error("show-shift-calendar button not found.");
+            }
+
+            const showExpenseInputBtn = document.getElementById('show-expense-input');
+            if (showExpenseInputBtn) {
+                showExpenseInputBtn.addEventListener('click', () => {
+                    console.log("Show Expense Input button clicked.");
+                    showPage('expense-input-page');
+                    document.getElementById('expense-date').value = new Date().toISOString().split('T')[0];
+                    fetchExpenses();
+                });
+            } else {
+                console.error("show-expense-input button not found.");
+            }
+
+            const showSummaryDisplayBtn = document.getElementById('show-summary-display');
+            if (showSummaryDisplayBtn) {
+                showSummaryDisplayBtn.addEventListener('click', () => {
+                    console.log("Show Summary Display button clicked.");
+                    showPage('summary-display-page');
+                });
+            } else {
+                console.error("show-summary-display button not found.");
+            }
+
+            // Header Back Button
+            document.getElementById('header-back-btn').addEventListener('click', () => {
+                console.log("Header back button clicked.");
+                showPage('home-page');
+            });
+
+            // Shift Calendar Navigation
+            document.getElementById('prev-month-btn').addEventListener('click', prevMonth);
+            document.getElementById('next-month-btn').addEventListener('click', nextMonth);
+
+            // Shift Modal Buttons
+            document.getElementById('save-shift-btn').addEventListener('click', saveShift);
+            document.getElementById('delete-shift-btn').addEventListener('click', deleteShift);
+            document.getElementById('close-shift-modal').addEventListener('click', closeShiftModal);
+            document.getElementById('cancel-shift-btn').addEventListener('click', closeShiftModal);
+
+            // Add Preset button in Shift Modal
+            document.getElementById('add-preset-btn').addEventListener('click', openPresetNameModal);
+
+            // Preset Name Input Modal Buttons
+            document.getElementById('save-preset-name-btn').addEventListener('click', saveShiftPreset);
+            document.getElementById('cancel-preset-name-btn').addEventListener('click', closePresetNameModal);
+
+            // Salary Settings Modal Buttons
+            document.getElementById('open-salary-settings-btn').addEventListener('click', openSalarySettingsModal);
+            document.getElementById('save-salary-settings-btn').addEventListener('click', saveSalarySettings);
+            document.getElementById('close-salary-settings-modal').addEventListener('click', closeSalarySettingsModal);
+
+            // Expense Input
+            document.getElementById('save-expense-btn').addEventListener('click', saveExpense);
+
+            // Collapsible sections on Expense Input Page
+            document.getElementById('toggle-expense-list').addEventListener('click', () => toggleCollapsible('toggle-expense-list', 'expense-list-content', 'expense-list-caret'));
+
+            // Global Bottom Navigation Buttons (Shift group)
+            const bottomNavShift = document.getElementById('bottom-nav-shift');
+            if (bottomNavShift) {
+                bottomNavShift.addEventListener('click', () => {
+                    console.log("Bottom Nav Shift clicked.");
+                    document.getElementById('my-shifts-content').classList.remove('hidden');
+                    document.getElementById('salary-calculation-content').classList.add('hidden');
+                    document.getElementById('shift-page-title').textContent = 'マイシフト';
+                    // Update active state for current group
+                    document.getElementById('bottom-nav-shift').classList.add('bg-blue-500', 'text-white');
+                    document.getElementById('bottom-nav-shift').classList.remove('text-gray-600', 'hover:bg-gray-100');
+                    document.getElementById('bottom-nav-salary').classList.remove('bg-blue-500', 'text-white');
+                    document.getElementById('bottom-nav-salary').classList.add('text-gray-600', 'hover:bg-gray-100');
+                });
+            } else {
+                console.error("bottom-nav-shift button not found.");
+            }
+
+            const bottomNavSalary = document.getElementById('bottom-nav-salary');
+            if (bottomNavSalary) {
+                bottomNavSalary.addEventListener('click', () => {
+                    console.log("Bottom Nav Salary clicked.");
+                    document.getElementById('my-shifts-content').classList.add('hidden');
+                    document.getElementById('salary-calculation-content').classList.remove('hidden');
+                    document.getElementById('shift-page-title').textContent = '給料計算';
+                    // Update active state for current group
+                    document.getElementById('bottom-nav-salary').classList.add('bg-blue-500', 'text-white');
+                    document.getElementById('bottom-nav-salary').classList.remove('text-gray-600', 'hover:bg-gray-100');
+                    document.getElementById('bottom-nav-shift').classList.remove('bg-blue-500', 'text-white');
+                    document.getElementById('bottom-nav-shift').classList.add('text-gray-600', 'hover:bg-gray-100');
+                });
+            } else {
+                console.error("bottom-nav-salary button not found.");
+            }
+
+            // Global Bottom Navigation Buttons (Expense/Bank group)
+            const bottomNavExpense = document.getElementById('bottom-nav-expense');
+            if (bottomNavExpense) {
+                bottomNavExpense.addEventListener('click', () => showPage('expense-input-page'));
+            } else {
+                console.error("bottom-nav-expense button not found.");
+            }
+
+            const bottomNavBank = document.getElementById('bottom-nav-bank');
+            if (bottomNavBank) {
+                bottomNavBank.addEventListener('click', () => showPage('bank-page'));
+            } else {
+                console.error("bottom-nav-bank button not found.");
+            }
+
+            // Bank Page and Credit/Debit/Loan Management
+            document.getElementById('save-bank-main-settings-btn').addEventListener('click', saveBankMainSettings);
+
+            // Debit Card Buttons
+            document.getElementById('add-debit-card-btn').addEventListener('click', () => openDebitCardModal(null));
+            document.getElementById('save-debit-card-btn').addEventListener('click', saveDebitCard);
+            document.getElementById('delete-debit-card-btn').addEventListener('click', deleteDebitCard);
+            document.getElementById('close-debit-card-modal').addEventListener('click', closeDebitCardModal);
+            document.getElementById('cancel-debit-card-btn').addEventListener('click', closeDebitCardModal);
+
+            // Credit Card Buttons
+            document.getElementById('add-credit-card-btn').addEventListener('click', () => openCreditCardModal(null));
+            document.getElementById('save-credit-card-btn').addEventListener('click', saveCreditCard);
+            document.getElementById('delete-credit-card-btn').addEventListener('click', deleteCreditCard);
+            document.getElementById('close-credit-card-modal').addEventListener('click', closeCreditCardModal);
+            document.getElementById('cancel-credit-card-btn').addEventListener('click', closeCreditCardModal);
+
+            // Loan Settings
+            document.getElementById('add-loan-btn').addEventListener('click', () => openLoanModal(null));
+            document.getElementById('save-loan-btn').addEventListener('click', saveLoan);
+            document.getElementById('delete-loan-btn').addEventListener('click', deleteLoan);
+            document.getElementById('close-loan-modal').addEventListener('click', closeLoanModal);
+            document.getElementById('cancel-loan-btn').addEventListener('click', closeLoanModal);
+
+            // Graph Navigation
+            document.getElementById('prev-graph-month-btn').addEventListener('click', () => {
+                currentGraphDisplayMonth.setMonth(currentGraphDisplayMonth.getMonth() - 1);
+                renderSummary(); // Re-render summary, which includes the graph
+            });
+            document.getElementById('next-graph-month-btn').addEventListener('click', () => {
+                currentGraphDisplayMonth.setMonth(currentGraphDisplayMonth.getMonth() + 1);
+                renderSummary(); // Re-render summary, which includes the graph
+            });
+
+            // Initial page display
+            showPage('home-page');
+        });
+    </script>
+</body>
+</html>
