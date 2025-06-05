@@ -68,7 +68,7 @@
     <!-- Header -->
     <header class="fixed top-0 left-0 w-full bg-white shadow-md p-4 flex justify-between items-center z-10 h-16">
         <!-- New universal Back Button in Header -->
-        <!-- Removed 'hidden' attribute; JavaScript will control visibility -->
+        <!-- 'hidden' attribute removed; JavaScript will control visibility -->
         <button id="header-back-btn" class="py-2 px-4 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors text-white font-semibold">
             戻る
         </button>
@@ -574,7 +574,7 @@
         let app;
         let db;
         let auth;
-        let userId = null;
+        let userId = null; // userId will be set after successful authentication
         let currentMonth = new Date(); // Tracks the month displayed in the calendar
         let currentGraphDisplayMonth = new Date(); // Tracks the month displayed in the balance graph
         let shiftPresets = []; // Stores user-defined shift presets
@@ -770,23 +770,36 @@
                     if (user) {
                         userId = user.uid;
                         console.log("Firebase initialized. User ID:", userId);
-                        // After successful authentication, load initial data
-                        await loadInitialData();
-                        showLoading(false);
                     } else {
-                        // Sign in anonymously if no user is logged in
+                        // User is signed out or not yet authenticated. Try to sign in anonymously.
                         try {
                             if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
                                 await window.signInWithCustomToken(auth, window.__initial_auth_token);
                             } else {
                                 await window.signInAnonymously(auth);
                             }
+                            // After successful sign-in (anonymous or custom token), get the UID
+                            userId = auth.currentUser ? auth.currentUser.uid : null;
+                            if (userId) {
+                                console.log("Signed in anonymously. User ID:", userId);
+                            } else {
+                                console.warn("Anonymous sign-in succeeded but no UID found.");
+                            }
                         } catch (error) {
-                            console.error("Error signing in:", error);
-                            showMessageBox("認証に失敗しました。", 'error');
-                            showLoading(false);
+                            console.error("Error during anonymous sign-in:", error);
+                            showMessageBox("匿名認証に失敗しました。Firebaseプロジェクト設定で匿名認証が有効か確認してください。", 'error');
+                            userId = null; // Explicitly set to null if authentication failed.
                         }
                     }
+                    // After authentication state is determined (success or failure)
+                    // Only load initial data if a valid userId is available.
+                    if (userId) {
+                       await loadInitialData();
+                    } else {
+                       // Handle case where authentication failed and data cannot be loaded/saved
+                       showMessageBox("Firebase認証に失敗したため、データは保存されません。匿名認証を有効にしてください。", 'error');
+                    }
+                    showLoading(false);
                 });
             } catch (error) {
                 console.error("Firebase initialization failed:", error);
@@ -798,7 +811,7 @@
         // Load initial data after authentication
         async function loadInitialData() {
             if (!userId) {
-                console.error("User ID not available for data loading.");
+                console.error("User ID not available for data loading. Skipping data load.");
                 return;
             }
             // Load settings
@@ -817,7 +830,7 @@
         };
 
         async function loadSalarySettings() {
-            if (!userId) return;
+            if (!userId) return; // User ID is needed for private data
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
             const settingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/user_settings`);
             try {
@@ -841,12 +854,13 @@
         }
 
         async function saveSalarySettings() {
-            if (!userId) {
-                showMessageBox("ユーザー認証が完了していません。", 'error');
+            if (!auth.currentUser) {
+                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
                 return;
             }
+            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const settingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/user_settings`);
+            const settingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/user_settings`);
 
             const weekdayWage = parseInt(document.getElementById('weekday-wage').value);
             const holidayWage = parseInt(document.getElementById('holiday-wage').value);
@@ -893,7 +907,7 @@
         let editingLoanId = null;
 
         async function loadBankSettings() {
-            if (!userId) return;
+            if (!userId) return; // User ID is needed for private data
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
             const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
             try {
@@ -916,12 +930,13 @@
         }
 
         async function saveBankMainSettings() {
-            if (!userId) {
-                showMessageBox("ユーザー認証が完了していません。", 'error');
+            if (!auth.currentUser) {
+                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
                 return;
             }
+            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
 
             const bankBalance = parseInt(document.getElementById('bank-balance').value);
             const payday = parseInt(document.getElementById('payday-bank-settings').value);
@@ -938,6 +953,7 @@
                 await window.setDoc(bankSettingsRef, {
                     bankBalance: bankSettings.bankBalance,
                     payday: bankSettings.payday,
+                    // Ensure existing arrays are merged, not overwritten if they are loaded first.
                     creditCards: bankSettings.creditCards,
                     debitCards: bankSettings.debitCards,
                     loans: bankSettings.loans
@@ -1025,12 +1041,13 @@
         }
 
         async function saveDebitCard() {
-            if (!userId) {
-                showMessageBox("ユーザー認証が完了していません。", 'error');
+            if (!auth.currentUser) {
+                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
                 return;
             }
+            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
 
             const name = document.getElementById('debit-card-name').value.trim();
 
@@ -1061,13 +1078,13 @@
         }
 
         async function deleteDebitCard() {
-            if (editingDebitCardId === null || !userId) {
-                showMessageBox("削除するデビットカードが選択されていません。", 'error');
+            if (!auth.currentUser || editingDebitCardId === null) { // Also check editingDebitCardId
+                showMessageBox("データ削除には認証が必要です、または削除するデビットカードが選択されていません。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
                 return;
             }
-
+            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
 
             const cardName = bankSettings.debitCards[editingDebitCardId].name;
             bankSettings.debitCards.splice(editingDebitCardId, 1);
@@ -1152,12 +1169,13 @@
         }
 
         async function saveCreditCard() {
-            if (!userId) {
-                showMessageBox("ユーザー認証が完了していません。", 'error');
+            if (!auth.currentUser) {
+                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
                 return;
             }
+            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
 
             const name = document.getElementById('credit-card-name').value.trim();
             const paymentDate = parseInt(document.getElementById('credit-card-payment-date-input').value);
@@ -1190,13 +1208,13 @@
         }
 
         async function deleteCreditCard() {
-            if (editingCreditCardId === null || !userId) {
-                showMessageBox("削除するクレジットカードが選択されていません。", 'error');
+            if (!auth.currentUser || editingCreditCardId === null) { // Also check editingCreditCardId
+                showMessageBox("データ削除には認証が必要です、または削除するクレジットカードが選択されていません。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
                 return;
             }
-
+            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
 
             const cardName = bankSettings.creditCards[editingCreditCardId].name;
             bankSettings.creditCards.splice(editingCreditCardId, 1);
@@ -1232,7 +1250,7 @@
 
             bankSettings.loans.forEach((loan, index) => {
                 const loanItem = document.createElement('div');
-                cardItem.classList.add('bg-gray-50', 'p-4', 'rounded-lg', 'shadow-sm', 'flex', 'justify-between', 'items-center');
+                loanItem.classList.add('bg-gray-50', 'p-4', 'rounded-lg', 'shadow-sm', 'flex', 'justify-between', 'items-center');
                 loanItem.innerHTML = `
                     <div>
                         <p class="font-semibold text-gray-800">${loan.name}</p>
@@ -1284,12 +1302,13 @@
         }
 
         async function saveLoan() {
-            if (!userId) {
-                showMessageBox("ユーザー認証が完了していません。", 'error');
+            if (!auth.currentUser) {
+                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
                 return;
             }
+            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
 
             const name = document.getElementById('loan-name').value.trim();
             const amount = parseInt(document.getElementById('loan-amount').value);
@@ -1323,13 +1342,13 @@
         }
 
         async function deleteLoan() {
-            if (editingLoanId === null || !userId) {
-                showMessageBox("削除するローンが選択されていません。", 'error');
+            if (!auth.currentUser || editingLoanId === null) { // Also check editingLoanId
+                showMessageBox("データ削除には認証が必要です、または削除するローンが選択されていません。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
                 return;
             }
-
+            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
+            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
 
             const loanName = bankSettings.loans[editingLoanId].name;
             bankSettings.loans.splice(editingLoanId, 1);
@@ -1601,9 +1620,9 @@
                     const yPos = yAxisEnd - ((data.balance - minBalance) / yAxisRange) * chartHeight;
 
                     if (index === 0) {
-                        chartCtx.moveTo(xPos, yPos); // Corrected from 'ctx' to 'chartCtx'
+                        chartCtx.moveTo(xPos, yPos);
                     } else {
-                        chartCtx.lineTo(xPos, yPos); // Corrected from 'ctx' to 'chartCtx'
+                        chartCtx.lineTo(xPos, yPos);
                     }
                     // Draw circle at each data point
                     chartCtx.beginPath();
@@ -1721,7 +1740,7 @@
         }
 
         async function fetchShiftsForMonth(year, month) {
-            if (!userId) return;
+            if (!userId) return; // User ID is needed for private data
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
             const shiftsColRef = window.collection(db, `artifacts/${appId}/users/${userId}/shifts`);
 
@@ -1809,12 +1828,13 @@
         }
 
         async function saveShift() {
-            if (!userId || !currentShiftDate) {
-                showMessageBox("ユーザー認証または日付が選択されていません。", 'error');
+            if (!auth.currentUser) {
+                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
                 return;
             }
+            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const shiftsColRef = window.collection(db, `artifacts/${appId}/users/${userId}/shifts`);
+            const shiftsColRef = window.collection(db, `artifacts/${appId}/users/${currentUserId}/shifts`);
 
             const startTimeStr = document.getElementById('shift-start-time').value;
             const endTimeStr = document.getElementById('shift-end-time').value;
@@ -1850,12 +1870,12 @@
                 endTime: endDateTime,   // Save the specific local datetime
                 breakTime: breakTime,
                 notes: notes,
-                userId: userId
+                userId: currentUserId // Use currentUserId from auth.currentUser
             };
 
             try {
                 if (editingShiftId) {
-                    await window.setDoc(window.doc(db, `artifacts/${appId}/users/${userId}/shifts`, editingShiftId), shiftData);
+                    await window.setDoc(window.doc(db, `artifacts/${appId}/users/${currentUserId}/shifts`, editingShiftId), shiftData);
                     showMessageBox("シフトを更新しました！");
                 } else {
                     await window.addDoc(shiftsColRef, shiftData);
@@ -1869,12 +1889,13 @@
         }
 
         async function deleteShift() {
-            if (!userId || !editingShiftId) {
-                showMessageBox("削除するシフトが選択されていません。", 'error');
+            if (!auth.currentUser || !editingShiftId) { // Also check editingShiftId
+                showMessageBox("データ削除には認証が必要です、または削除するシフトが選択されていません。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
                 return;
             }
+            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const shiftDocRef = window.doc(db, `artifacts/${appId}/users/${userId}/shifts`, editingShiftId);
+            const shiftDocRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/shifts`, editingShiftId);
 
             try {
                 await window.deleteDoc(shiftDocRef);
@@ -2055,7 +2076,7 @@
         let expenses = [];
 
         async function fetchExpenses() {
-            if (!userId) return;
+            if (!userId) return; // User ID is needed for private data
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
             const expensesColRef = window.collection(db, `artifacts/${appId}/users/${userId}/expenses`);
 
@@ -2078,12 +2099,13 @@
         }
 
         async function saveExpense() {
-            if (!userId) {
-                showMessageBox("ユーザー認証が完了していません。", 'error');
+            if (!auth.currentUser) {
+                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
                 return;
             }
+            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const expensesColRef = window.collection(db, `artifacts/${appId}/users/${userId}/expenses`);
+            const expensesColRef = window.collection(db, `artifacts/${appId}/users/${currentUserId}/expenses`);
 
             const expenseDateStr = document.getElementById('expense-date').value;
             const expenseCategory = document.getElementById('expense-category').value;
@@ -2119,7 +2141,7 @@
                 notes: expenseNotes,
                 paymentMethodType: paymentMethodType, // NEW
                 paymentMethodName: paymentMethodName, // NEW
-                userId: userId
+                userId: currentUserId // Use currentUserId from auth.currentUser
             };
 
             try {
@@ -2331,7 +2353,7 @@
         // --- Shift Presets Management ---
 
         async function fetchShiftPresets() {
-            if (!userId) return;
+            if (!userId) return; // User ID is needed for private data
             const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
             const presetsColRef = window.collection(db, `artifacts/${appId}/users/${userId}/shiftPresets`);
 
@@ -2392,10 +2414,13 @@
         }
 
         async function saveShiftPreset() {
-            if (!userId) {
-                showMessageBox("ユーザー認証が完了していません。", 'error');
+            if (!auth.currentUser) {
+                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
                 return;
             }
+            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
+            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
+            const presetsColRef = window.collection(db, `artifacts/${appId}/users/${currentUserId}/shiftPresets`);
 
             const startTimeStr = document.getElementById('shift-start-time').value;
             const endTimeStr = document.getElementById('shift-end-time').value;
@@ -2411,16 +2436,13 @@
                 return;
             }
 
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const presetsColRef = window.collection(db, `artifacts/${appId}/users/${userId}/shiftPresets`);
-
             try {
                 await window.addDoc(presetsColRef, {
                     name: presetName.trim(),
                     startTime: startTimeStr,
                     endTime: endTimeStr,
                     breakTime: breakTime,
-                    userId: userId
+                    userId: currentUserId // Use currentUserId from auth.currentUser
                 });
                 showMessageBox(`プリセット "${presetName}" を追加しました！`);
                 closePresetNameModal();
