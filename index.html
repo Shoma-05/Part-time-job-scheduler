@@ -59,16 +59,9 @@
         <p id="message-text"></p>
     </div>
 
-    <!-- Loading Overlay -->
-    <div id="loading-overlay" class="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-[100] hidden">
-        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500"></div>
-        <p class="ml-4 text-white text-lg">読み込み中...</p>
-    </div>
-
     <!-- Header -->
     <header class="fixed top-0 left-0 w-full bg-white shadow-md p-4 flex justify-between items-center z-10 h-16">
         <!-- New universal Back Button in Header -->
-        <!-- 'hidden' attribute removed; JavaScript will control visibility -->
         <button id="header-back-btn" class="py-2 px-4 rounded-md bg-blue-600 border border-blue-600 shadow-sm hover:bg-blue-700 transition-colors text-white font-semibold">
             戻る
         </button>
@@ -541,50 +534,27 @@
     </div>
 
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Global variables for Firebase (accessible in the main script)
-        window.initializeApp = initializeApp;
-        window.getAuth = getAuth;
-        window.signInAnonymously = signInAnonymously;
-        window.signInWithCustomToken = signInWithCustomToken;
-        window.onAuthStateChanged = onAuthStateChanged;
-        window.getFirestore = getFirestore;
-        window.doc = doc;
-        window.getDoc = getDoc;
-        window.addDoc = addDoc;
-        window.setDoc = setDoc;
-        window.updateDoc = updateDoc;
-        window.deleteDoc = deleteDoc;
-        window.onSnapshot = onSnapshot;
-        window.collection = collection;
-        window.query = query;
-        window.where = where;
-        window.getDocs = getDocs;
-
-        // Expose global variables from Canvas environment
-        window.__app_id = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        window.__firebase_config = typeof __firebase_config !== 'undefined' ? window.__firebase_config : '{}';
-        window.__initial_auth_token = typeof __initial_auth_token !== 'undefined' ? window.__initial_auth_token : null;
-    </script>
-    <script type="module">
-        // Global variables for Firebase
-        let app;
-        let db;
-        let auth;
-        let userId = null; // userId will be set after successful authentication
+        // Global variables for in-memory data
+        let userId = 'local-user'; // Dummy user ID for local operations
         let currentMonth = new Date(); // Tracks the month displayed in the calendar
         let currentGraphDisplayMonth = new Date(); // Tracks the month displayed in the balance graph
         let shiftPresets = []; // Stores user-defined shift presets
+        let shifts = []; // Stores in-memory shifts
+        let expenses = []; // Stores in-memory expenses
 
-        // New global object for bank settings
+        // Initial default salary settings
+        let currentSalarySettings = {
+            weekdayWage: 1000,
+            holidayWage: 1250,
+            transportationCost: 5000,
+        };
+
+        // Initial default bank settings (in-memory)
         let bankSettings = {
             bankBalance: 0,
             payday: 25,
-            creditCards: [], // Array to store multiple credit cards
-            debitCards: [], // Array to store multiple debit cards (NEW)
+            creditCards: [],
+            debitCards: [],
             loans: []
         };
 
@@ -609,16 +579,6 @@
                 messageBox.classList.remove('opacity-100');
                 messageBox.classList.add('opacity-0', 'pointer-events-none');
             }, 3000);
-        }
-
-        // Function to show loading overlay
-        function showLoading(show) {
-            const loadingOverlay = document.getElementById('loading-overlay');
-            if (show) {
-                loadingOverlay.classList.remove('hidden');
-            } else {
-                loadingOverlay.classList.add('hidden');
-            }
         }
 
         // Function to show/hide header back button
@@ -754,114 +714,28 @@
             }
         }
 
-        // Firebase Initialization and Authentication
-        async function initFirebase() {
-            showLoading(true);
-            try {
-                const firebaseConfig = typeof window.__firebase_config !== 'undefined' ? JSON.parse(window.__firebase_config) : {};
-                const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-
-                app = window.initializeApp(firebaseConfig);
-                db = window.getFirestore(app);
-                auth = window.getAuth(app);
-
-                // Listen for auth state changes
-                window.onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        console.log("Firebase initialized. User ID:", userId);
-                    } else {
-                        // User is signed out or not yet authenticated. Try to sign in anonymously.
-                        try {
-                            if (typeof window.__initial_auth_token !== 'undefined' && window.__initial_auth_token) {
-                                await window.signInWithCustomToken(auth, window.__initial_auth_token);
-                            } else {
-                                await window.signInAnonymously(auth);
-                            }
-                            // After successful sign-in (anonymous or custom token), get the UID
-                            userId = auth.currentUser ? auth.currentUser.uid : null;
-                            if (userId) {
-                                console.log("Signed in anonymously. User ID:", userId);
-                            } else {
-                                console.warn("Anonymous sign-in succeeded but no UID found.");
-                            }
-                        } catch (error) {
-                            console.error("Error during anonymous sign-in:", error);
-                            showMessageBox("匿名認証に失敗しました。Firebaseプロジェクト設定で匿名認証が有効か確認してください。", 'error');
-                            userId = null; // Explicitly set to null if authentication failed.
-                        }
-                    }
-                    // After authentication state is determined (success or failure)
-                    // Only load initial data if a valid userId is available.
-                    if (userId) {
-                       await loadInitialData();
-                    } else {
-                       // Handle case where authentication failed and data cannot be loaded/saved
-                       showMessageBox("Firebase認証に失敗したため、データは保存されません。匿名認証を有効にしてください。", 'error');
-                    }
-                    showLoading(false);
-                });
-            } catch (error) {
-                console.error("Firebase initialization failed:", error);
-                showMessageBox("Firebaseの初期化に失敗しました。", 'error');
-                showLoading(false);
-            }
+        // Initialize local app data and UI
+        function initializeLocalApp() {
+            // Data is already initialized globally (shifts, expenses, bankSettings etc.)
+            // Just render the initial state of the app
+            loadSalarySettings(); // Populate salary settings inputs with defaults
+            loadBankSettings();   // Populate bank settings inputs with defaults
+            renderCalendar(currentMonth.getFullYear(), currentMonth.getMonth()); // Render initial calendar
+            renderExpenses();     // Render initial expenses (empty list)
+            renderShiftPresets(); // Render initial shift presets (empty list)
+            renderSalaryCalculation(); // Render initial salary calculation (based on empty shifts)
         }
 
-        // Load initial data after authentication
-        async function loadInitialData() {
-            if (!userId) {
-                console.error("User ID not available for data loading. Skipping data load.");
-                return;
-            }
-            // Load settings
-            await loadSalarySettings();
-            await loadBankSettings();
-            renderCalendar(currentMonth.getFullYear(), currentMonth.getMonth());
-            fetchExpenses();
-            fetchShiftPresets();
-        }
 
         // --- Salary Settings ---
-        let currentSalarySettings = {
-            weekdayWage: 1000,
-            holidayWage: 1250,
-            transportationCost: 5000,
-        };
-
-        async function loadSalarySettings() {
-            if (!userId) return; // User ID is needed for private data
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const settingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/user_settings`);
-            try {
-                const docSnap = await window.getDoc(settingsRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    currentSalarySettings.weekdayWage = data.weekdayWage !== undefined ? data.weekdayWage : currentSalarySettings.weekdayWage;
-                    currentSalarySettings.holidayWage = data.holidayWage !== undefined ? data.holidayWage : currentSalarySettings.holidayWage;
-                    currentSalarySettings.transportationCost = data.transportationCost !== undefined ? data.transportationCost : currentSalarySettings.transportationCost;
-                    console.log("Loaded salary settings (partial):", currentSalarySettings);
-                } else {
-                    console.log("No salary settings found, using defaults.");
-                }
-                document.getElementById('weekday-wage').value = currentSalarySettings.weekdayWage;
-                document.getElementById('holiday-wage').value = currentSalarySettings.holidayWage;
-                document.getElementById('transportation-cost').value = currentSalarySettings.transportationCost;
-            } catch (e) {
-                console.error("Error loading salary settings:", e);
-                showMessageBox("給料設定の読み込みに失敗しました。", 'error');
-            }
+        function loadSalarySettings() {
+            // Just populate inputs with currentSalarySettings (which hold default values)
+            document.getElementById('weekday-wage').value = currentSalarySettings.weekdayWage;
+            document.getElementById('holiday-wage').value = currentSalarySettings.holidayWage;
+            document.getElementById('transportation-cost').value = currentSalarySettings.transportationCost;
         }
 
-        async function saveSalarySettings() {
-            if (!auth.currentUser) {
-                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
-                return;
-            }
-            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const settingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/user_settings`);
-
+        function saveSalarySettings() {
             const weekdayWage = parseInt(document.getElementById('weekday-wage').value);
             const holidayWage = parseInt(document.getElementById('holiday-wage').value);
             const transportationCost = parseInt(document.getElementById('transportation-cost').value);
@@ -874,20 +748,9 @@
             currentSalarySettings.weekdayWage = weekdayWage;
             currentSalarySettings.holidayWage = holidayWage;
             currentSalarySettings.transportationCost = transportationCost;
-
-            try {
-                await window.setDoc(settingsRef, {
-                    weekdayWage: currentSalarySettings.weekdayWage,
-                    holidayWage: currentSalarySettings.holidayWage,
-                    transportationCost: currentSalarySettings.transportationCost
-                }, { merge: true });
-                showMessageBox("給料設定を保存しました！");
-                closeSalarySettingsModal();
-                renderSalaryCalculation();
-            } catch (e) {
-                console.error("Error saving salary settings:", e);
-                showMessageBox("給料設定の保存に失敗しました。", 'error');
-            }
+            showMessageBox("給料設定を保存しました！ (データはローカルにのみ保存されます)");
+            closeSalarySettingsModal();
+            renderSalaryCalculation();
         }
 
         function openSalarySettingsModal() {
@@ -906,38 +769,13 @@
         let editingDebitCardId = null;
         let editingLoanId = null;
 
-        async function loadBankSettings() {
-            if (!userId) return; // User ID is needed for private data
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${userId}/settings/bank_settings`);
-            try {
-                const docSnap = await window.getDoc(bankSettingsRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    bankSettings.bankBalance = data.bankBalance !== undefined ? data.bankBalance : bankSettings.bankBalance;
-                    bankSettings.payday = data.payday !== undefined ? data.payday : bankSettings.payday;
-                    bankSettings.creditCards = Array.isArray(data.creditCards) ? data.creditCards : [];
-                    bankSettings.debitCards = Array.isArray(data.debitCards) ? data.debitCards : [];
-                    bankSettings.loans = Array.isArray(data.loans) ? data.loans : [];
-                    console.log("Loaded bank settings:", bankSettings);
-                } else {
-                    console.log("No bank settings found, using defaults.");
-                }
-            } catch (e) {
-                console.error("Error loading bank settings:", e);
-                showMessageBox("銀行設定の読み込みに失敗しました。", 'error');
-            }
+        function loadBankSettings() {
+            // Just populate inputs and global bankSettings with default/empty values
+            document.getElementById('bank-balance').value = bankSettings.bankBalance;
+            document.getElementById('payday-bank-settings').value = bankSettings.payday;
         }
 
-        async function saveBankMainSettings() {
-            if (!auth.currentUser) {
-                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
-                return;
-            }
-            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
-
+        function saveBankMainSettings() {
             const bankBalance = parseInt(document.getElementById('bank-balance').value);
             const payday = parseInt(document.getElementById('payday-bank-settings').value);
 
@@ -948,23 +786,9 @@
 
             bankSettings.bankBalance = bankBalance;
             bankSettings.payday = payday;
-
-            try {
-                await window.setDoc(bankSettingsRef, {
-                    bankBalance: bankSettings.bankBalance,
-                    payday: bankSettings.payday,
-                    // Ensure existing arrays are merged, not overwritten if they are loaded first.
-                    creditCards: bankSettings.creditCards,
-                    debitCards: bankSettings.debitCards,
-                    loans: bankSettings.loans
-                }, { merge: true });
-                showMessageBox("銀行情報を保存しました！");
-                renderBankDetails();
-                renderBankGraph(currentGraphDisplayMonth.getFullYear(), currentGraphDisplayMonth.getMonth()); // Re-render graph after settings change
-            } catch (e) {
-                console.error("Error saving bank main settings:", e);
-                showMessageBox("銀行情報の保存に失敗しました。", 'error');
-            }
+            showMessageBox("銀行情報を保存しました！ (データはローカルにのみ保存されます)");
+            renderBankDetails();
+            renderBankGraph(currentGraphDisplayMonth.getFullYear(), currentGraphDisplayMonth.getMonth());
         }
 
         function renderBankDetails() {
@@ -1040,15 +864,7 @@
             editingDebitCardId = null;
         }
 
-        async function saveDebitCard() {
-            if (!auth.currentUser) {
-                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
-                return;
-            }
-            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
-
+        function saveDebitCard() {
             const name = document.getElementById('debit-card-name').value.trim();
 
             if (!name) {
@@ -1060,45 +876,30 @@
 
             if (editingDebitCardId !== null) {
                 bankSettings.debitCards[editingDebitCardId] = newCard;
-                showMessageBox(`デビットカード "${name}" を更新しました！`);
+                showMessageBox(`デビットカード "${name}" を更新しました！ (データはローカルにのみ保存されます)`);
             } else {
                 bankSettings.debitCards.push(newCard);
-                showMessageBox(`デビットカード "${name}" を追加しました！`);
+                showMessageBox(`デビットカード "${name}" を追加しました！ (データはローカルにのみ保存されます)`);
             }
 
-            try {
-                await window.setDoc(bankSettingsRef, { debitCards: bankSettings.debitCards }, { merge: true });
-                closeDebitCardModal();
-                renderDebitCards();
-                populatePaymentMethodDropdown(); // Update dropdown
-            } catch (e) {
-                console.error("Error saving debit card:", e);
-                showMessageBox("デビットカードの保存に失敗しました。", 'error');
-            }
+            closeDebitCardModal();
+            renderDebitCards();
+            populatePaymentMethodDropdown(); // Update dropdown
         }
 
-        async function deleteDebitCard() {
-            if (!auth.currentUser || editingDebitCardId === null) { // Also check editingDebitCardId
-                showMessageBox("データ削除には認証が必要です、または削除するデビットカードが選択されていません。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
+        function deleteDebitCard() {
+            if (editingDebitCardId === null) {
+                showMessageBox("削除するデビットカードが選択されていません。", 'error');
                 return;
             }
-            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
 
             const cardName = bankSettings.debitCards[editingDebitCardId].name;
             bankSettings.debitCards.splice(editingDebitCardId, 1);
 
-            try {
-                await window.setDoc(bankSettingsRef, { debitCards: bankSettings.debitCards }, { merge: true });
-                showMessageBox(`デビットカード "${cardName}" を削除しました！`);
-                closeDebitCardModal();
-                renderDebitCards();
-                populatePaymentMethodDropdown(); // Update dropdown
-            } catch (e) {
-                console.error("Error deleting debit card:", e);
-                showMessageBox("デビットカードの削除に失敗しました。", 'error');
-            }
+            showMessageBox(`デビットカード "${cardName}" を削除しました！ (データはローカルにのみ保存されます)`);
+            closeDebitCardModal();
+            renderDebitCards();
+            populatePaymentMethodDropdown(); // Update dropdown
         }
 
         // --- Credit Card Management ---
@@ -1168,15 +969,7 @@
             editingCreditCardId = null;
         }
 
-        async function saveCreditCard() {
-            if (!auth.currentUser) {
-                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
-                return;
-            }
-            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
-
+        function saveCreditCard() {
             const name = document.getElementById('credit-card-name').value.trim();
             const paymentDate = parseInt(document.getElementById('credit-card-payment-date-input').value);
             const closingDate = parseInt(document.getElementById('credit-card-closing-date-input').value);
@@ -1190,45 +983,30 @@
 
             if (editingCreditCardId !== null) {
                 bankSettings.creditCards[editingCreditCardId] = newCard;
-                showMessageBox(`クレジットカード "${name}" を更新しました！`);
+                showMessageBox(`クレジットカード "${name}" を更新しました！ (データはローカルにのみ保存されます)`);
             } else {
                 bankSettings.creditCards.push(newCard);
-                showMessageBox(`クレジットカード "${name}" を追加しました！`);
+                showMessageBox(`クレジットカード "${name}" を追加しました！ (データはローカルにのみ保存されます)`);
             }
 
-            try {
-                await window.setDoc(bankSettingsRef, { creditCards: bankSettings.creditCards }, { merge: true });
-                closeCreditCardModal();
-                renderCreditCards();
-                populatePaymentMethodDropdown(); // Update dropdown
-            } catch (e) {
-                console.error("Error saving credit card:", e);
-                showMessageBox("クレジットカードの保存に失敗しました。", 'error');
-            }
+            closeCreditCardModal();
+            renderCreditCards();
+            populatePaymentMethodDropdown(); // Update dropdown
         }
 
-        async function deleteCreditCard() {
-            if (!auth.currentUser || editingCreditCardId === null) { // Also check editingCreditCardId
-                showMessageBox("データ削除には認証が必要です、または削除するクレジットカードが選択されていません。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
+        function deleteCreditCard() {
+            if (editingCreditCardId === null) {
+                showMessageBox("削除するクレジットカードが選択されていません。", 'error');
                 return;
             }
-            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
 
             const cardName = bankSettings.creditCards[editingCreditCardId].name;
             bankSettings.creditCards.splice(editingCreditCardId, 1);
 
-            try {
-                await window.setDoc(bankSettingsRef, { creditCards: bankSettings.creditCards }, { merge: true });
-                showMessageBox(`クレジットカード "${cardName}" を削除しました！`);
-                closeCreditCardModal();
-                renderCreditCards();
-                populatePaymentMethodDropdown(); // Update dropdown
-            } catch (e) {
-                console.error("Error deleting credit card:", e);
-                showMessageBox("クレジットカードの削除に失敗しました。", 'error');
-            }
+            showMessageBox(`クレジットカード "${cardName}" を削除しました！ (データはローカルにのみ保存されます)`);
+            closeCreditCardModal();
+            renderCreditCards();
+            populatePaymentMethodDropdown(); // Update dropdown
         }
 
         // --- Loan Management ---
@@ -1301,15 +1079,7 @@
             editingLoanId = null;
         }
 
-        async function saveLoan() {
-            if (!auth.currentUser) {
-                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
-                return;
-            }
-            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
-
+        function saveLoan() {
             const name = document.getElementById('loan-name').value.trim();
             const amount = parseInt(document.getElementById('loan-amount').value);
             const paymentDate = parseInt(document.getElementById('loan-payment-date').value);
@@ -1324,45 +1094,30 @@
 
             if (editingLoanId !== null) {
                 bankSettings.loans[editingLoanId] = newLoan;
-                showMessageBox(`ローン "${name}" を更新しました！`);
+                showMessageBox(`ローン "${name}" を更新しました！ (データはローカルにのみ保存されます)`);
             } else {
                 bankSettings.loans.push(newLoan);
-                showMessageBox(`ローン "${name}" を追加しました！`);
+                showMessageBox(`ローン "${name}" を追加しました！ (データはローカルにのみ保存されます)`);
             }
 
-            try {
-                await window.setDoc(bankSettingsRef, { loans: bankSettings.loans }, { merge: true });
-                closeLoanModal();
-                renderLoans();
-                renderBankGraph(currentGraphDisplayMonth.getFullYear(), currentGraphDisplayMonth.getMonth()); // Re-render graph after loan changes
-            } catch (e) {
-                console.error("Error saving loan:", e);
-                showMessageBox("ローンの保存に失敗しました。", 'error');
-            }
+            closeLoanModal();
+            renderLoans();
+            renderBankGraph(currentGraphDisplayMonth.getFullYear(), currentGraphDisplayMonth.getMonth()); // Re-render graph after loan changes
         }
 
-        async function deleteLoan() {
-            if (!auth.currentUser || editingLoanId === null) { // Also check editingLoanId
-                showMessageBox("データ削除には認証が必要です、または削除するローンが選択されていません。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
+        function deleteLoan() {
+            if (editingLoanId === null) {
+                showMessageBox("削除するローンが選択されていません。", 'error');
                 return;
             }
-            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const bankSettingsRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/settings/bank_settings`);
 
             const loanName = bankSettings.loans[editingLoanId].name;
             bankSettings.loans.splice(editingLoanId, 1);
 
-            try {
-                await window.setDoc(bankSettingsRef, { loans: bankSettings.loans }, { merge: true });
-                showMessageBox(`ローン "${loanName}" を削除しました！`);
-                closeLoanModal();
-                renderLoans();
-                renderBankGraph(currentGraphDisplayMonth.getFullYear(), currentGraphDisplayMonth.getMonth()); // Re-render graph after loan changes
-            } catch (e) {
-                console.error("Error deleting loan:", e);
-                showMessageBox("ローンの削除に失敗しました。", 'error');
-            }
+            showMessageBox(`ローン "${loanName}" を削除しました！ (データはローカルにのみ保存されます)`);
+            closeLoanModal();
+            renderLoans();
+            renderBankGraph(currentGraphDisplayMonth.getFullYear(), currentGraphDisplayMonth.getMonth()); // Re-render graph after loan changes
         }
 
         // --- Payment Method Dropdown ---
@@ -1450,7 +1205,7 @@
 
                 // 1. Add back cash/debit expenses that occurred on this date
                 expenses.filter(e => {
-                    const expDate = e.date; // Firestore Timestamp.toDate() already gives local date parts
+                    const expDate = e.date; // Date object
                     return formatDateToYYYYMMDD(expDate) === dateStr && (e.paymentMethodType === 'cash' || e.paymentMethodType === 'debit');
                 }).forEach(exp => {
                     balanceAtGraphMonthStart += exp.amount;
@@ -1490,7 +1245,7 @@
 
                 // Deduct cash and debit expenses for the current day
                 expenses.filter(e => {
-                    const expenseDate = e.date; // Firestore Timestamp.toDate() already gives local date parts
+                    const expenseDate = e.date; // Date object
                     return formatDateToYYYYMMDD(expenseDate) === dateStr && (e.paymentMethodType === 'cash' || e.paymentMethodType === 'debit');
                 }).forEach(expense => {
                     runningBalanceProjection -= expense.amount;
@@ -1561,7 +1316,7 @@
             // Find min/max balance for scaling
             const allBalances = dailyBalancesData.map(d => d.balance);
             const minBalance = allBalances.length > 0 ? Math.min(...allBalances, 0) : 0;
-            const maxBalance = allBalances.length > 0 ? Math.max(...allBalances, balanceAtGraphMonthStart) : balanceAtGraphMonthStart;
+            const maxBalance = allBalances.length > 0 ? Math.max(...allBalances, bankSettings.bankBalance) : bankSettings.bankBalance; // Use bankSettings.bankBalance for context
 
             const padding = 30;
             const chartWidth = width - 2 * padding;
@@ -1696,8 +1451,6 @@
         }
 
         // --- Calendar and Shift Management ---
-        let shifts = [];
-
         function renderCalendar(year, month) {
             const calendarDays = document.getElementById('calendar-days');
             calendarDays.innerHTML = '';
@@ -1736,36 +1489,10 @@
                 dayCell.addEventListener('click', () => openShiftModal(dayCell.dataset.date));
                 calendarDays.appendChild(dayCell);
             }
-            fetchShiftsForMonth(year, month);
-        }
-
-        async function fetchShiftsForMonth(year, month) {
-            if (!userId) return; // User ID is needed for private data
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const shiftsColRef = window.collection(db, `artifacts/${appId}/users/${userId}/shifts`);
-
-            // Firebase onSnapshot provides real-time updates for the entire collection.
-            // Filtering for current month display happens client-side after data retrieval.
-            window.onSnapshot(shiftsColRef, (snapshot) => {
-                shifts = [];
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    const shiftDate = data.date.toDate(); // Firestore Timestamp.toDate() gives local Date object
-                    const startTime = data.startTime && data.startTime.toDate ? data.startTime.toDate() : new Date(data.startTime);
-                    const endTime = data.endTime && data.endTime.toDate ? data.endTime.toDate() : new Date(data.endTime);
-
-                    // Filter shifts to only include the currently displayed month
-                    if (shiftDate.getFullYear() === year && shiftDate.getMonth() === month) {
-                        shifts.push({ id: doc.id, ...data, date: shiftDate, startTime: startTime, endTime: endTime });
-                    }
-                });
-                updateCalendarShiftDisplay();
-                renderMyShifts();
-                renderSalaryCalculation();
-            }, (error) => {
-                console.error("Error fetching shifts:", error);
-                showMessageBox("シフトの読み込みに失敗しました。", 'error');
-            });
+            // After rendering calendar structure, update shift displays for the month
+            updateCalendarShiftDisplay();
+            renderMyShifts();
+            renderSalaryCalculation();
         }
 
         function updateCalendarShiftDisplay() {
@@ -1777,8 +1504,8 @@
                 const dateStr = formatDateToYYYYMMDD(shift.date);
                 const shiftInfoDiv = document.getElementById(`shift-info-${dateStr}`);
                 if (shiftInfoDiv) {
-                    const startTime = shift.startTime instanceof Date ? shift.startTime : new Date(shift.startTime.seconds * 1000);
-                    const endTime = shift.endTime instanceof Date ? shift.endTime : new Date(shift.endTime.seconds * 1000);
+                    const startTime = shift.startTime;
+                    const endTime = shift.endTime;
 
                     const formattedStartTime = startTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
                     const formattedEndTime = endTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
@@ -1802,8 +1529,8 @@
 
             if (existingShift) {
                 editingShiftId = existingShift.id;
-                const startTime = existingShift.startTime instanceof Date ? existingShift.startTime : new Date(existingShift.startTime.seconds * 1000);
-                const endTime = existingShift.endTime instanceof Date ? existingShift.endTime : new Date(existingShift.endTime.seconds * 1000);
+                const startTime = existingShift.startTime;
+                const endTime = existingShift.endTime;
 
                 document.getElementById('shift-start-time').value = startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
                 document.getElementById('shift-end-time').value = endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -1827,15 +1554,7 @@
             document.getElementById('shift-modal').classList.add('hidden');
         }
 
-        async function saveShift() {
-            if (!auth.currentUser) {
-                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
-                return;
-            }
-            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const shiftsColRef = window.collection(db, `artifacts/${appId}/users/${currentUserId}/shifts`);
-
+        function saveShift() {
             const startTimeStr = document.getElementById('shift-start-time').value;
             const endTimeStr = document.getElementById('shift-end-time').value;
             const breakTime = parseInt(document.getElementById('shift-break-time').value) || 0;
@@ -1863,49 +1582,45 @@
                  endDateTime.setDate(endDateTime.getDate() + 1); // Add one day
             }
 
-
             const shiftData = {
+                id: editingShiftId || Date.now().toString(), // Generate new ID if not editing
                 date: dateForShift, // Save the local date object (midnight local time)
                 startTime: startDateTime, // Save the specific local datetime
                 endTime: endDateTime,   // Save the specific local datetime
                 breakTime: breakTime,
                 notes: notes,
-                userId: currentUserId // Use currentUserId from auth.currentUser
+                userId: userId // Use local-user ID
             };
 
-            try {
-                if (editingShiftId) {
-                    await window.setDoc(window.doc(db, `artifacts/${appId}/users/${currentUserId}/shifts`, editingShiftId), shiftData);
-                    showMessageBox("シフトを更新しました！");
-                } else {
-                    await window.addDoc(shiftsColRef, shiftData);
-                    showMessageBox("シフトを追加しました！");
+            if (editingShiftId) {
+                const index = shifts.findIndex(s => s.id === editingShiftId);
+                if (index !== -1) {
+                    shifts[index] = shiftData;
                 }
-                closeShiftModal();
-            } catch (e) {
-                console.error("Error saving shift:", e);
-                showMessageBox("シフトの保存に失敗しました。", 'error');
+                showMessageBox("シフトを更新しました！ (データはローカルにのみ保存されます)");
+            } else {
+                shifts.push(shiftData);
+                showMessageBox("シフトを追加しました！ (データはローカルにのみ保存されます)");
             }
+            closeShiftModal();
+            updateCalendarShiftDisplay(); // Update calendar icons
+            renderMyShifts(); // Update shift list
+            renderSalaryCalculation(); // Re-calculate salary
         }
 
-        async function deleteShift() {
-            if (!auth.currentUser || !editingShiftId) { // Also check editingShiftId
-                showMessageBox("データ削除には認証が必要です、または削除するシフトが選択されていません。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
+        function deleteShift() {
+            if (!editingShiftId) {
+                showMessageBox("削除するシフトが選択されていません。", 'error');
                 return;
             }
-            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const shiftDocRef = window.doc(db, `artifacts/${appId}/users/${currentUserId}/shifts`, editingShiftId);
 
-            try {
-                await window.deleteDoc(shiftDocRef);
-                showMessageBox("シフトを削除しました！");
-                closeShiftModal();
-                editingShiftId = null;
-            } catch (e) {
-                console.error("Error deleting shift:", e);
-                showMessageBox("シフトの削除に失敗しました。", 'error');
-            }
+            shifts = shifts.filter(s => s.id !== editingShiftId);
+            showMessageBox("シフトを削除しました！ (データはローカルにのみ保存されます)");
+            closeShiftModal();
+            editingShiftId = null;
+            updateCalendarShiftDisplay(); // Update calendar icons
+            renderMyShifts(); // Update shift list
+            renderSalaryCalculation(); // Re-calculate salary
         }
 
         function prevMonth() {
@@ -1938,8 +1653,8 @@
 
             sortedShifts.forEach(shift => {
                 const date = shift.date.toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric', weekday: 'short' });
-                const startTime = shift.startTime instanceof Date ? shift.startTime : new Date(shift.startTime.seconds * 1000);
-                const endTime = shift.endTime instanceof Date ? shift.endTime : new Date(shift.endTime.seconds * 1000);
+                const startTime = shift.startTime;
+                const endTime = shift.endTime;
 
                 const formattedStartTime = startTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
                 const formattedEndTime = endTime.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
@@ -1990,8 +1705,8 @@
             today.setHours(0, 0, 0, 0);
 
             filteredShifts.forEach(shift => {
-                const start = shift.startTime instanceof Date ? shift.startTime : new Date(shift.startTime.seconds * 1000);
-                const end = shift.endTime instanceof Date ? shift.endTime : new Date(shift.endTime.seconds * 1000);
+                const start = shift.startTime;
+                const end = shift.endTime;
                 const breakMinutes = shift.breakTime || 0;
 
                 let durationMinutes = (end.getTime() - start.getTime()) / (1000 * 60);
@@ -2073,91 +1788,6 @@
         }
 
         // --- Expense Management ---
-        let expenses = [];
-
-        async function fetchExpenses() {
-            if (!userId) return; // User ID is needed for private data
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const expensesColRef = window.collection(db, `artifacts/${appId}/users/${userId}/expenses`);
-
-            window.onSnapshot(expensesColRef, (snapshot) => {
-                expenses = [];
-                snapshot.forEach(doc => {
-                    expenses.push({ id: doc.id, ...doc.data(), date: doc.data().date.toDate() });
-                });
-                renderExpenses();
-                renderSummary();
-                // If summary page is active, re-render graph as expenses affect it
-                // Only render if the summary page is currently visible to avoid unnecessary renders
-                if (document.getElementById('summary-display-page').classList.contains('hidden') === false) {
-                    renderBankGraph(currentGraphDisplayMonth.getFullYear(), currentGraphDisplayMonth.getMonth());
-                }
-            }, (error) => {
-                console.error("Error fetching expenses:", error);
-                showMessageBox("支出の読み込みに失敗しました。", 'error');
-            });
-        }
-
-        async function saveExpense() {
-            if (!auth.currentUser) {
-                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
-                return;
-            }
-            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const expensesColRef = window.collection(db, `artifacts/${appId}/users/${currentUserId}/expenses`);
-
-            const expenseDateStr = document.getElementById('expense-date').value;
-            const expenseCategory = document.getElementById('expense-category').value;
-            const expenseAmount = parseInt(document.getElementById('expense-amount').value);
-            const expenseNotes = document.getElementById('expense-notes').value;
-            const paymentMethodValue = document.getElementById('expense-payment-method').value;
-
-            if (!expenseDateStr || !expenseCategory || isNaN(expenseAmount) || expenseAmount <= 0) {
-                showMessageBox("日付、項目、金額を正しく入力してください。", 'error');
-                return;
-            }
-
-            let paymentMethodType = 'cash';
-            let paymentMethodName = '現金';
-
-            if (paymentMethodValue.startsWith('debit-')) {
-                paymentMethodType = 'debit';
-                paymentMethodName = paymentMethodValue.substring(6); // Remove "debit-" prefix
-            } else if (paymentMethodValue.startsWith('credit-')) {
-                paymentMethodType = 'credit';
-                paymentMethodName = paymentMethodValue.substring(7); // Remove "credit-" prefix
-            }
-
-            // Create Date object using local time components to avoid UTC offset issues
-            const [year, monthIndex, day] = expenseDateStr.split('-').map(Number);
-            const expenseDate = new Date(year, monthIndex - 1, day);
-            expenseDate.setHours(0, 0, 0, 0); // Ensure it's explicitly at local midnight for consistency
-
-            const expenseData = {
-                date: expenseDate, // Store as local date (midnight local time)
-                category: expenseCategory,
-                amount: expenseAmount,
-                notes: expenseNotes,
-                paymentMethodType: paymentMethodType, // NEW
-                paymentMethodName: paymentMethodName, // NEW
-                userId: currentUserId // Use currentUserId from auth.currentUser
-            };
-
-            try {
-                await window.addDoc(expensesColRef, expenseData);
-                showMessageBox("支出を記録しました！");
-                document.getElementById('expense-date').value = formatDateToYYYYMMDD(new Date()); // Reset dropdown
-                document.getElementById('expense-category').value = '食費';
-                document.getElementById('expense-amount').value = '';
-                document.getElementById('expense-notes').value = '';
-                document.getElementById('expense-payment-method').value = 'cash'; // Reset dropdown
-            } catch (e) {
-                console.error("Error saving expense:", e);
-                showMessageBox("支出の記録に失敗しました。", 'error');
-            }
-        }
-
         function renderExpenses() {
             const expenseList = document.getElementById('expense-list');
             expenseList.innerHTML = '';
@@ -2197,6 +1827,63 @@
             document.getElementById('total-monthly-expense').textContent = totalMonthlyExpense.toLocaleString();
         }
 
+        function saveExpense() {
+            const expenseDateStr = document.getElementById('expense-date').value;
+            const expenseCategory = document.getElementById('expense-category').value;
+            const expenseAmount = parseInt(document.getElementById('expense-amount').value);
+            const expenseNotes = document.getElementById('expense-notes').value;
+            const paymentMethodValue = document.getElementById('expense-payment-method').value;
+
+            if (!expenseDateStr || !expenseCategory || isNaN(expenseAmount) || expenseAmount <= 0) {
+                showMessageBox("日付、項目、金額を正しく入力してください。", 'error');
+                return;
+            }
+
+            let paymentMethodType = 'cash';
+            let paymentMethodName = '現金';
+
+            if (paymentMethodValue.startsWith('debit-')) {
+                paymentMethodType = 'debit';
+                paymentMethodName = paymentMethodValue.substring(6); // Remove "debit-" prefix
+            } else if (paymentMethodValue.startsWith('credit-')) {
+                paymentMethodType = 'credit';
+                paymentMethodName = paymentMethodValue.substring(7); // Remove "credit-" prefix
+            }
+
+            // Create Date object using local time components to avoid UTC offset issues
+            const [year, monthIndex, day] = expenseDateStr.split('-').map(Number);
+            const expenseDate = new Date(year, monthIndex - 1, day);
+            expenseDate.setHours(0, 0, 0, 0); // Ensure it's explicitly at local midnight for consistency
+
+            const expenseData = {
+                id: Date.now().toString(), // Simple unique ID for local storage
+                date: expenseDate, // Store as local date (midnight local time)
+                category: expenseCategory,
+                amount: expenseAmount,
+                notes: expenseNotes,
+                paymentMethodType: paymentMethodType,
+                paymentMethodName: paymentMethodName,
+                userId: userId
+            };
+
+            expenses.push(expenseData);
+            showMessageBox("支出を記録しました！ (データはローカルにのみ保存されます)");
+            document.getElementById('expense-date').value = formatDateToYYYYMMDD(new Date()); // Reset dropdown
+            document.getElementById('expense-category').value = '食費';
+            document.getElementById('expense-amount').value = '';
+            document.getElementById('expense-notes').value = '';
+            document.getElementById('expense-payment-method').value = 'cash'; // Reset dropdown
+
+            renderExpenses();
+            renderSummary();
+            // If summary page is active, re-render graph as expenses affect it
+            // Only render if the summary page is currently visible to avoid unnecessary renders
+            if (document.getElementById('summary-display-page').classList.contains('hidden') === false) {
+                renderBankGraph(currentGraphDisplayMonth.getFullYear(), currentGraphDisplayMonth.getMonth());
+            }
+        }
+
+
         // --- Summary Display ---
         function renderSummary() {
             const summaryContent = document.getElementById('summary-content');
@@ -2209,8 +1896,8 @@
             let totalHolidayHours = 0;
             shifts.forEach(shift => {
                 if (shift.date.getMonth() === currentDisplayMonth && shift.date.getFullYear() === currentDisplayYear) {
-                    const start = shift.startTime instanceof Date ? shift.startTime : new Date(shift.startTime.seconds * 1000);
-                    const end = shift.endTime instanceof Date ? shift.endTime : new Date(shift.endTime.seconds * 1000);
+                    const start = shift.startTime;
+                    const end = shift.endTime;
                     const breakMinutes = shift.breakTime || 0;
 
                     let durationMinutes = (end.getTime() - start.getTime()) / (1000 * 60);
@@ -2351,24 +2038,6 @@
         }
 
         // --- Shift Presets Management ---
-
-        async function fetchShiftPresets() {
-            if (!userId) return; // User ID is needed for private data
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const presetsColRef = window.collection(db, `artifacts/${appId}/users/${userId}/shiftPresets`);
-
-            window.onSnapshot(presetsColRef, (snapshot) => {
-                shiftPresets = [];
-                snapshot.forEach(doc => {
-                    shiftPresets.push({ id: doc.id, ...doc.data() });
-                });
-                renderShiftPresets();
-            }, (error) => {
-                console.error("Error fetching shift presets:", error);
-                showMessageBox("プリセットの読み込みに失敗しました。", 'error');
-            });
-        }
-
         function renderShiftPresets() {
             const presetButtonsContainer = document.getElementById('preset-buttons-container');
             presetButtonsContainer.innerHTML = '';
@@ -2413,15 +2082,7 @@
             document.getElementById('preset-name-modal').classList.add('hidden');
         }
 
-        async function saveShiftPreset() {
-            if (!auth.currentUser) {
-                showMessageBox("データ保存には認証が必要です。Firebaseプロジェクトの匿名認証が有効か確認してください。", 'error');
-                return;
-            }
-            const currentUserId = auth.currentUser.uid; // Get userId from authenticated user
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            const presetsColRef = window.collection(db, `artifacts/${appId}/users/${currentUserId}/shiftPresets`);
-
+        function saveShiftPreset() {
             const startTimeStr = document.getElementById('shift-start-time').value;
             const endTimeStr = document.getElementById('shift-end-time').value;
             const breakTime = parseInt(document.getElementById('shift-break-time').value) || 0;
@@ -2436,27 +2097,26 @@
                 return;
             }
 
-            try {
-                await window.addDoc(presetsColRef, {
-                    name: presetName.trim(),
-                    startTime: startTimeStr,
-                    endTime: endTimeStr,
-                    breakTime: breakTime,
-                    userId: currentUserId // Use currentUserId from auth.currentUser
-                });
-                showMessageBox(`プリセット "${presetName}" を追加しました！`);
-                closePresetNameModal();
-            } catch (e) {
-                console.error("Error adding preset:", e);
-                showMessageBox("プリセットの追加に失敗しました。", 'error');
-            }
+            const newPreset = {
+                id: Date.now().toString(), // Simple unique ID for local storage
+                name: presetName.trim(),
+                startTime: startTimeStr,
+                endTime: endTimeStr,
+                breakTime: breakTime,
+                userId: userId
+            };
+
+            shiftPresets.push(newPreset);
+            showMessageBox(`プリセット "${presetName}" を追加しました！ (データはローカルにのみ保存されます)`);
+            closePresetNameModal();
+            renderShiftPresets();
         }
 
 
         // Event Listeners
         document.addEventListener('DOMContentLoaded', () => {
             console.log("DOMContentLoaded event fired.");
-            initFirebase();
+            initializeLocalApp(); // Call the local initialization function
 
             // Main navigation buttons (Home page)
             const showShiftCalendarBtn = document.getElementById('show-shift-calendar');
@@ -2476,7 +2136,7 @@
                     showPage('expense-input-page');
                     // Initialize expense date to today's date (formatted correctly)
                     document.getElementById('expense-date').value = formatDateToYYYYMMDD(new Date());
-                    fetchExpenses();
+                    renderExpenses(); // Re-render expenses from in-memory data
                 });
             } else {
                 console.error("show-expense-input button not found.");
